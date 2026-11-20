@@ -1,0 +1,28 @@
+/* Jobseeker additions on top of the shared Loopwrk style.css */
+.lvl{font-family:'IBM Plex Mono',monospace;font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;padding:.25em .6em;border-radius:3px;border:1px solid var(--hairline-strong);color:var(--ink-dim);white-space:nowrap}
+.lvl-head{border-color:color-mix(in srgb,var(--accent) 55%,transparent);color:var(--ink)}
+.fit{font-family:'IBM Plex Mono',monospace;font-size:.74rem;font-weight:500;white-space:nowrap}
+.fit-hi{color:var(--green)} .fit-mid{color:var(--stage-proposal)} .fit-lo{color:var(--ink-faint)}
+.job-title{font-weight:500}
+.job-co{color:var(--ink-faint);font-size:.82rem}
+td.wrap{white-space:normal;min-width:240px;max-width:420px;font-size:.84rem;color:var(--ink-dim)}
+.host{font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:var(--ink-faint)}
+.host:hover{color:var(--ink)}
+.pkg-text{white-space:pre-wrap;font-size:.92rem;line-height:1.6;color:var(--ink-dim)}
+.pkg-text textarea{width:100%}
+.copy-row{display:flex;justify-content:flex-end;margin-top:8px}
+.ev{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--hairline);font-size:.88rem}
+.ev:last-child{border-bottom:none}
+.ev .who{font-family:'IBM Plex Mono',monospace;font-size:.68rem;color:var(--ink-faint);min-width:110px}
+.ev .body{flex:1;white-space:pre-wrap;color:var(--ink-dim)}
+.run{padding:16px 0;border-bottom:1px solid var(--hairline)}
+.run:last-child{border-bottom:none}
+.run-stats{display:flex;gap:14px;flex-wrap:wrap;font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:var(--ink-faint);margin:6px 0 10px}
+.run-stats b{color:var(--ink)}
+.due{color:var(--stage-proposal);font-family:'IBM Plex Mono',monospace;font-size:.72rem}
+.due.over{color:var(--red)}
+.status-form{display:flex;flex-wrap:wrap;gap:6px}
+.status-form button{font-family:'IBM Plex Mono',monospace;font-size:.7rem;padding:.4em .75em;border-radius:100px;border:1px solid var(--hairline-strong);background:var(--glass);color:var(--ink-dim)}
+.status-form button.on{border-color:var(--pc);background:color-mix(in srgb,var(--pc) 24%,transparent);color:var(--ink)}
+.md-edit{width:100%;min-height:420px;font-family:'IBM Plex Mono',monospace;font-size:.82rem;line-height:1.55}
+@media (max-width:900px){.tiles.six-m{grid-template-columns:repeat(3,1fr)}}

@@ -1,0 +1,21 @@
+{
+  "name": "jobseeker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Alex's personal job-search tracker — standalone, Cloudflare Workers + D1. Fed by a scheduled Claude agent.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply jobseeker-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply jobseeker-db --remote",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.0.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^4.0.0"
+  }
+}

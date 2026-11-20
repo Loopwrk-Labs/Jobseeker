@@ -1,0 +1,28 @@
+name = "jobseeker"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Workers Free plan only. Nothing in this app uses a paid Cloudflare service.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jobseeker-db"
+database_id = "bfde5052-b5ea-42d2-9fce-6cde4978c769"
+migrations_dir = "migrations"
+
+# Worker Previews (non-main branches, built by Workers Builds) use a separate
+# staging D1 database with the same migrations applied, never production data.
+[[previews.d1_databases]]
+binding = "DB"
+database_name = "jobseeker-preview-db"
+database_id = "74b8b710-14d3-41e5-b4d3-f1638e0bc190"
+migrations_dir = "migrations"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Secrets (never put real values here — set with `wrangler secret put <NAME>`,
+# or as encrypted variables in Workers Builds, or in .dev.vars locally):
+#   SESSION_SECRET — random 32+ byte hex
