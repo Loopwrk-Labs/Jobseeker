@@ -52,8 +52,7 @@ so `npm run db:migrate:remote` only applies newer ones.
 
 1. Cloudflare dashboard → Workers & Pages → Create → Import a repository →
    `Loopwrk-Labs/Jobseeker`. Build command: none. Deploy command: `npx wrangler deploy`.
-2. Settings → Variables and Secrets → add `SESSION_SECRET` (encrypted), any long random string.
-3. Open the `*.workers.dev` URL → `/setup` → create your account (the screen disappears after that).
+2. Open the `*.workers.dev` URL → `/setup` → create your account (the screen disappears after that).
 
 Rule (same as the website repo): changes go to a preview branch first;
 production only when Alex says "push".
@@ -62,7 +61,6 @@ production only when Alex says "push".
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars
 npm run db:migrate:local
 npm run dev
 ```

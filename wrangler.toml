@@ -23,6 +23,4 @@ migrations_dir = "migrations"
 directory = "./public"
 binding = "ASSETS"
 
-# Secrets (never put real values here — set with `wrangler secret put <NAME>`,
-# or as encrypted variables in Workers Builds, or in .dev.vars locally):
-#   SESSION_SECRET — random 32+ byte hex
+# No secrets needed: sessions are random 256-bit tokens stored in D1.
