@@ -41,6 +41,7 @@ dashboardRoutes.get('/', async (c) => {
     listJobs(db, { status: ['review'] }),
     db.prepare('SELECT * FROM agent_runs ORDER BY started_at DESC, id DESC LIMIT 1').first<RunRow>(),
   ]);
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const active = (counts.applied ?? 0) + (counts.interview ?? 0) + (counts.offer ?? 0);
 
   return c.html(
@@ -54,7 +55,13 @@ dashboardRoutes.get('/', async (c) => {
           </div>
         </div>
 
-        <div class="tiles six-m">
+        <div class="tiles seven">
+          <div class="tile total" style="--tc:var(--ink)">
+            <a href="/jobs">
+              <div class="num">{total}</div>
+              <div class="lbl">Ukupno</div>
+            </a>
+          </div>
           {STATUSES.map((s) => (
             <div class="tile" style={`--tc:${STATUS_COLOR[s]}`}>
               <a href={`/jobs?status=${s}`}>
