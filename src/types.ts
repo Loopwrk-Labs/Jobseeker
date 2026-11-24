@@ -72,6 +72,11 @@ export interface JobRow {
   verified_at: string | null;
   applied_at: string | null;
   follow_up_on: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_currency: string | null; // EUR | USD | GBP | RSD
+  salary_period: string | null; // month | year | hour
+  salary_kind: string | null; // gross | net
   created_at: string;
   updated_at: string;
 }

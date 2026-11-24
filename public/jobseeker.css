@@ -29,3 +29,32 @@ td.wrap{white-space:normal;min-width:240px;max-width:420px;font-size:.84rem;colo
 .tiles.seven{grid-template-columns:repeat(7,minmax(0,1fr))}
 .tile.total{background:color-mix(in srgb,var(--ink) 5%,var(--surface))}
 @media (max-width:900px){.tiles.seven{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+/* ---- salary from the posting: always bold red ---- */
+.salary-offer{color:var(--red);font-weight:700}
+.salary-offer.big{font-family:'Archivo',sans-serif;font-weight:900;font-size:1.35rem;line-height:1.2}
+.co .salary-offer,.job-co .salary-offer{font-size:.84rem}
+.card-mini .salary-offer{display:block;font-size:.76rem;margin-top:5px}
+
+/* ---- calculator ---- */
+.calc-modes{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.calc-modes label{display:flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--hairline-strong);border-radius:4px;cursor:pointer;font-size:.86rem}
+.calc-modes input{accent-color:currentColor}
+.calc-modes label:has(input:checked){background:var(--surface-2);border-color:var(--ink)}
+.form-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.calc [hidden]{display:none!important}
+.calc-offer{margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--hairline)}
+.calc-offer .k{font-family:'IBM Plex Mono',monospace;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:4px}
+.calc-rates summary{cursor:pointer;font-size:.84rem}
+.calc-table{margin-top:14px;border:1px solid var(--hairline);border-radius:var(--radius-s);overflow-x:auto}
+.calc-out td,.calc-out th{padding:8px 10px;white-space:nowrap}
+.calc-out tr.calc-strong td{font-weight:600;font-size:1.02rem}
+.calc-out tr.calc-strong td.salary-offer{font-weight:800}
+.calc-notes{margin:12px 0 0;padding-left:18px;font-size:.84rem}
+.calc-notes li{margin:4px 0}
+.calc-foot{font-size:.76rem;margin-top:10px}
+.calc-compact .form-grid.three{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:900px){.calc-compact .form-grid.three{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:700px){.form-grid.three,.calc-compact .form-grid.three{grid-template-columns:1fr}}
+.form-grid.five{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media (max-width:900px){.form-grid.five{grid-template-columns:repeat(2,minmax(0,1fr))}}

@@ -69,15 +69,22 @@ export interface JobInput {
   risks: string | null;
   next_step: string | null;
   notes: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_currency: string | null;
+  salary_period: string | null;
+  salary_kind: string | null;
 }
 
 export async function createJob(db: D1Database, input: JobInput, source: JobSource, actor: string): Promise<number> {
   const r = await db
     .prepare(
-      `INSERT INTO jobs (company, title, level, fit, location, contract_type, domain, url, risks, next_step, notes, source)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO jobs (company, title, level, fit, location, contract_type, domain, url, risks, next_step, notes, source,
+         salary_min, salary_max, salary_currency, salary_period, salary_kind)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(input.company, input.title, input.level, input.fit, input.location, input.contract_type, input.domain, input.url, input.risks, input.next_step, input.notes, source)
+    .bind(input.company, input.title, input.level, input.fit, input.location, input.contract_type, input.domain, input.url, input.risks, input.next_step, input.notes, source,
+      input.salary_min, input.salary_max, input.salary_currency, input.salary_period, input.salary_kind)
     .run();
   const id = r.meta.last_row_id as number;
   await addEvent(db, id, actor, 'Posao dodat ručno.');
@@ -89,11 +96,13 @@ export async function updateJob(db: D1Database, id: number, input: JobInput, act
   if (!before) return;
   await db
     .prepare(
-      `UPDATE jobs SET company=?, title=?, level=?, fit=?, location=?, contract_type=?, domain=?, url=?, risks=?, next_step=?, notes=?, updated_at=datetime('now') WHERE id=?`,
+      `UPDATE jobs SET company=?, title=?, level=?, fit=?, location=?, contract_type=?, domain=?, url=?, risks=?, next_step=?, notes=?,
+         salary_min=?, salary_max=?, salary_currency=?, salary_period=?, salary_kind=?, updated_at=datetime('now') WHERE id=?`,
     )
-    .bind(input.company, input.title, input.level, input.fit, input.location, input.contract_type, input.domain, input.url, input.risks, input.next_step, input.notes, id)
+    .bind(input.company, input.title, input.level, input.fit, input.location, input.contract_type, input.domain, input.url, input.risks, input.next_step, input.notes,
+      input.salary_min, input.salary_max, input.salary_currency, input.salary_period, input.salary_kind, id)
     .run();
-  const labels: Record<string, string> = { company: 'Firma', title: 'Pozicija', level: 'Nivo', fit: 'Fit', location: 'Lokacija', contract_type: 'Ugovor', domain: 'Domen', url: 'Link' };
+  const labels: Record<string, string> = { company: 'Firma', title: 'Pozicija', level: 'Nivo', fit: 'Fit', location: 'Lokacija', contract_type: 'Ugovor', domain: 'Domen', url: 'Link', salary_min: 'Plata od', salary_max: 'Plata do', salary_currency: 'Valuta plate' };
   const changes: string[] = [];
   for (const k of Object.keys(labels) as (keyof JobInput)[]) {
     const a = (before as any)[k] ?? '';

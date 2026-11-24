@@ -19,6 +19,11 @@ database_name = "jobseeker-preview-db"
 database_id = "74b8b710-14d3-41e5-b4d3-f1638e0bc190"
 migrations_dir = "migrations"
 
+# Official NBS middle rates for the salary calculator, every day at 08:20
+# Belgrade winter time (07:20 UTC). Pages also refresh lazily if stale.
+[triggers]
+crons = ["20 7 * * *"]
+
 [assets]
 directory = "./public"
 binding = "ASSETS"

@@ -9,6 +9,7 @@ import { agentRoutes } from './modules/agent/routes';
 import { profileRoutes } from './modules/profile/routes';
 import { settingsRoutes } from './modules/settings/routes';
 import { calculatorRoutes } from './modules/calculator/routes';
+import { refreshRates } from './modules/fx/service';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: SessionUser | null } }>();
 
@@ -35,4 +36,10 @@ app.route('/', calculatorRoutes);
 
 app.notFound((c) => c.text('Nema te stranice.', 404));
 
-export default app;
+export default {
+  fetch: app.fetch,
+  // Daily NBS exchange-rate refresh (Workers Free includes cron triggers).
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(refreshRates(env.DB));
+  },
+} satisfies ExportedHandler<Env>;

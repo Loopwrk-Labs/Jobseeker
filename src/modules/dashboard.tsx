@@ -3,7 +3,7 @@ import { raw } from 'hono/html';
 import type { Env, SessionUser, RunRow, JobRow } from '../types';
 import { STATUSES, STATUS_LABEL, STATUS_COLOR } from '../types';
 import { Layout, Topbar } from '../views/layout';
-import { StatusPill, LevelTag, FitBadge, fmtDate, fmtDateTime } from '../views/helpers';
+import { StatusPill, LevelTag, FitBadge, fmtDate, fmtDateTime, SalaryTag } from '../views/helpers';
 import { renderMarkdown } from '../lib/markdown';
 import { statusCounts, followUpsDue, listJobs } from './jobs/service';
 
@@ -19,7 +19,7 @@ function JobList({ jobs, empty }: { jobs: JobRow[]; empty: string }) {
           <tr>
             <td>
               <a href={`/jobs/${j.id}`} class="job-title">{j.title}</a>
-              <div class="job-co">{j.company}</div>
+              <div class="job-co">{j.company} <SalaryTag job={j} /></div>
             </td>
             <td><LevelTag level={j.level} /></td>
             <td><FitBadge fit={j.fit} /></td>

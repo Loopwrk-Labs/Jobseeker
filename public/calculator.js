@@ -64,89 +64,160 @@
   root.JobseekerCalc = CALC;
 
   // ---------------- UI ----------------
-  var LS_KEY = "jobseeker.calc.v1";
-  var DEFAULTS = { rateEUR: 117.2, rateUSD: 101, rateGBP: 134, feePct: 1, pausalMonthly: 60000, accountantMonthly: 0, hours: 40 };
+  function fromMonthly(monthly, period, hoursPerWeek) {
+    if (period === "year") return monthly * 12;
+    if (period === "hour") return monthly * 12 / 52 / (hoursPerWeek || 40);
+    return monthly;
+  }
+
+  var LS_KEY = "jobseeker.calc.v2";
+  var DEFAULTS = { feePct: 1, pausalMonthly: 60000, accountantMonthly: 0, hours: 40, markup: 15 };
+  var KEYS = ["feePct", "pausalMonthly", "accountantMonthly", "hours", "markup"];
+  var FALLBACK_RATES = { EUR: 117.2, USD: 101, GBP: 134 };
 
   function load() {
-    try { var s = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); return Object.assign({}, DEFAULTS, s); } catch (e) { return Object.assign({}, DEFAULTS); }
+    var s = {};
+    try { s = JSON.parse(localStorage.getItem(LS_KEY) || localStorage.getItem("jobseeker.calc.v1") || "{}"); } catch (e) { s = {}; }
+    var out = Object.assign({}, DEFAULTS);
+    KEYS.forEach(function (k) { if (typeof s[k] === "number" && isFinite(s[k])) out[k] = s[k]; });
+    return out;
   }
-  function save(st) { try { localStorage.setItem(LS_KEY, JSON.stringify(st)); } catch (e) { /* bez storage-a radi i dalje */ } }
+  function save(st) { try { localStorage.setItem(LS_KEY, JSON.stringify(st)); } catch (e) { /* radi i bez storage-a */ } }
 
   function num(el) { var v = parseFloat(String(el && el.value || "").replace(/\s/g, "").replace(",", ".")); return isFinite(v) ? v : 0; }
   function fmt(v, cur) {
-    var digits = cur === "RSD" ? 0 : 0;
-    var s = new Intl.NumberFormat("sr-RS", { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(Math.round(v));
-    return s + " " + cur;
+    var digits = Math.abs(v) < 100 && cur !== "RSD" ? 2 : 0;
+    return new Intl.NumberFormat("sr-RS", { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(v) + " " + cur;
   }
+  function niceRound(v) { return v >= 1000 ? Math.round(v / 50) * 50 : v >= 100 ? Math.round(v) : Math.round(v * 2) / 2; }
+  function esc(t) { return String(t).replace(/[&<>"]/g, function (ch) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]; }); }
 
   function init() {
     var form = document.getElementById("calc");
     if (!form) return;
     var $ = function (id) { return document.getElementById(id); };
+    var fx = {}; var offer = null;
+    try { fx = JSON.parse(form.getAttribute("data-fx") || "{}"); } catch (e) { fx = {}; }
+    try { offer = form.getAttribute("data-offer") ? JSON.parse(form.getAttribute("data-offer")) : null; } catch (e) { offer = null; }
+    var nbs = Object.assign({}, FALLBACK_RATES, (fx && fx.rates) || {});
     var st = load();
-    ["rateEUR", "rateUSD", "rateGBP", "feePct", "pausalMonthly", "accountantMonthly", "hours"].forEach(function (k) { if ($(k)) $(k).value = st[k]; });
+    var manualAmount = false;
 
-    function rate(cur) { return cur === "RSD" ? 1 : num($("rate" + cur)) || DEFAULTS["rate" + cur]; }
+    KEYS.forEach(function (k) { if ($(k)) $(k).value = st[k]; });
+    function setRates() { ["EUR", "USD", "GBP"].forEach(function (c) { $("rate" + c).value = Math.round(nbs[c] * 10000) / 10000; }); }
+    setRates();
+
+    function rate(cur) { return cur === "RSD" ? 1 : num($("rate" + cur)) || nbs[cur] || FALLBACK_RATES[cur]; }
+
+    function rowsFor(mode, monthlyRsd, kind) {
+      if (mode === "emp") {
+        var r = kind === "net" ? fromNet(monthlyRsd) : kind === "gross2" ? fromGross2(monthlyRsd) : fromGross1(monthlyRsd);
+        return { res: r, rows: [
+          ["Neto (na ruke)", r.net, true],
+          ["Bruto 1", r.gross1],
+          ["Bruto 2 (trošak poslodavca)", r.gross2],
+          ["Porez 10%", r.tax],
+          ["Doprinosi zaposlenog 19,9%", r.empContrib],
+          ["Doprinosi poslodavca 15,15%", r.erContrib]
+        ] };
+      }
+      var c = contractor(monthlyRsd, { feePct: num($("feePct")), pausalMonthly: num($("pausalMonthly")), accountantMonthly: num($("accountantMonthly")) });
+      return { res: c, rows: [
+        ["Ostaje ti (neto)", c.net, true],
+        ["Prihod (fakturisano)", c.gross],
+        ["Bankarske provizije / konverzija", c.fees],
+        ["Paušal: porez + doprinosi", c.pausal],
+        ["Knjigovođa", c.accountant]
+      ] };
+    }
 
     function render() {
-      ["rateEUR", "rateUSD", "rateGBP", "feePct", "pausalMonthly", "accountantMonthly", "hours"].forEach(function (k) { if ($(k)) st[k] = num($(k)); });
+      KEYS.forEach(function (k) { if ($(k)) st[k] = num($(k)); });
       save(st);
 
       var mode = form.querySelector('input[name="mode"]:checked').value;
       var cur = $("currency").value;
       var period = $("period").value;
       var kind = $("kind").value;
-      var amount = num($("amount"));
       var hours = num($("hours")) || 40;
-      var r = rate(cur);
-      var monthly = toMonthly(amount, period, hours) * r; // RSD mesečno
 
-      $("hoursWrap").hidden = period !== "hour";
+      $("hoursWrap").hidden = period !== "hour" && !(offer && offer.period === "hour");
       $("kindWrap").hidden = mode !== "emp";
       $("contrOpts").hidden = mode !== "contr";
 
-      var rows = [];
-      var other = cur === "RSD" ? "EUR" : cur;
-      var ro = rate(other);
-      function row(label, rsd, strong) {
-        rows.push('<tr' + (strong ? ' class="calc-strong"' : '') + '><td>' + label + '</td><td class="mono">' + fmt(rsd, "RSD") + '</td><td class="mono">' + fmt(rsd / ro, other) + '</td><td class="mono faint">' + fmt(rsd * 12, "RSD") + '</td></tr>');
-      }
       var notes = [];
+      var offerMonthly = 0, offerKind = "gross1", offerMin = 0;
+      if (offer) {
+        var basis = offer.max || offer.min;
+        offerKind = offer.kind === "net" ? "net" : "gross1";
+        offerMonthly = toMonthly(basis, offer.period, hours) * rate(offer.currency);
+        offerMin = offer.min && offer.min !== basis ? toMonthly(offer.min, offer.period, hours) * rate(offer.currency) : 0;
+        if (!manualAmount) {
+          var target = offerMonthly * (1 + (num($("markup")) || 0) / 100);
+          // u izabranoj valuti/periodu; ako je oglas neto a računaš bruto (ili obrnuto), pretvori preko kalkulatora
+          if (mode === "emp" && kind !== offerKind) {
+            var rr = offerKind === "net" ? fromNet(target) : fromGross1(target);
+            target = kind === "net" ? rr.net : kind === "gross2" ? rr.gross2 : rr.gross1;
+          }
+          $("amount").value = niceRound(fromMonthly(target / rate(cur), period, hours));
+        }
+      }
+
+      var amount = num($("amount"));
+      var monthly = toMonthly(amount, period, hours) * rate(cur);
+      var mine = rowsFor(mode, monthly, kind);
+      var other = offer ? (offer.currency === "RSD" ? "EUR" : offer.currency) : (cur === "RSD" ? "EUR" : cur);
+      var ro = rate(other);
+      var html = [];
+
+      if (offer) {
+        var theirs = rowsFor(mode, offerMonthly, offerKind);
+        $("calcHead").innerHTML = "<tr><th>Mesečno</th><th>Oglas RSD</th><th>Oglas " + other + "</th><th>Tvoja ponuda RSD</th><th>Tvoja ponuda " + other + "</th><th>Razlika</th></tr>";
+        mine.rows.forEach(function (r, i) {
+          var t = theirs.rows[i];
+          if (mode === "contr" && i === 4 && !r[1]) return;
+          var diff = r[1] - t[1];
+          html.push("<tr" + (r[2] ? ' class="calc-strong"' : "") + "><td>" + r[0] + "</td>" +
+            '<td class="mono salary-offer">' + fmt(t[1], "RSD") + '</td><td class="mono salary-offer">' + fmt(t[1] / ro, other) + "</td>" +
+            '<td class="mono">' + fmt(r[1], "RSD") + '</td><td class="mono">' + fmt(r[1] / ro, other) + "</td>" +
+            '<td class="mono faint">' + (diff >= 0 ? "+" : "") + fmt(diff, "RSD") + "</td></tr>");
+        });
+        var theirNet = theirs.res.net, myNet = mine.res.net;
+        if (theirNet > 0) notes.push("Tvoja ponuda daje " + (myNet >= theirNet ? "+" : "") + fmt(myNet - theirNet, "RSD") + " neto mesečno (" + (myNet >= theirNet ? "+" : "") + Math.round((myNet / theirNet - 1) * 100) + "%) u odnosu na gornju granicu iz oglasa.");
+        if (offerMin) {
+          var low = rowsFor(mode, offerMin, offerKind).res.net;
+          notes.push("Oglas je raspon; računato na gornju granicu. Donja granica daje " + fmt(low, "RSD") + " neto mesečno.");
+        }
+        if (offer.period === "hour" || period === "hour") notes.push("Satnica je preračunata na " + hours + " h nedeljno × 52 / 12.");
+      } else {
+        $("calcHead").innerHTML = "<tr><th>Mesečno</th><th>RSD</th><th>" + other + "</th><th>Godišnje RSD</th></tr>";
+        mine.rows.forEach(function (r, i) {
+          if (mode === "contr" && i === 4 && !r[1]) return;
+          html.push("<tr" + (r[2] ? ' class="calc-strong"' : "") + "><td>" + r[0] + '</td><td class="mono">' + fmt(r[1], "RSD") + '</td><td class="mono">' + fmt(r[1] / ro, other) + '</td><td class="mono faint">' + fmt(r[1] * 12, "RSD") + "</td></tr>");
+        });
+        if (period !== "month") notes.push("Mesečni iznos: " + fmt(monthly / rate(cur), cur) + (cur !== "RSD" ? " = " + fmt(monthly, "RSD") : "") + (period === "hour" ? " (" + hours + " h nedeljno × 52 / 12)" : " (godišnje / 12)") + ".");
+      }
 
       if (mode === "emp") {
-        var res = kind === "net" ? fromNet(monthly) : kind === "gross2" ? fromGross2(monthly) : fromGross1(monthly);
-        row("Neto (na ruke)", res.net, true);
-        row("Bruto 1", res.gross1);
-        row("Bruto 2 (trošak poslodavca)", res.gross2);
-        row("Porez 10%", res.tax);
-        row("Doprinosi zaposlenog 19,9%", res.empContrib);
-        row("Doprinosi poslodavca 15,15%", res.erContrib);
-        if (res.minBaseApplied) notes.push("Bruto je ispod najniže osnovice (" + fmt(P.minBase, "RSD") + "), pa se doprinosi računaju na najnižu osnovicu. Za rad sa skraćenim radnim vremenom ovo nije tačno.");
-        if (res.maxBaseApplied) notes.push("Bruto je iznad najviše osnovice (" + fmt(P.maxBase, "RSD") + "), pa doprinosi ne rastu dalje. Godišnji porez na dohodak za visoke prihode nije uračunat.");
+        if (mine.res.minBaseApplied) notes.push("Bruto je ispod najniže osnovice (" + fmt(P.minBase, "RSD") + "), pa se doprinosi računaju na najnižu osnovicu. Za skraćeno radno vreme ovo nije tačno.");
+        if (mine.res.maxBaseApplied) notes.push("Bruto je iznad najviše osnovice (" + fmt(P.maxBase, "RSD") + "), pa doprinosi dalje ne rastu. Godišnji porez na dohodak nije uračunat.");
       } else {
-        var c = contractor(monthly, { feePct: num($("feePct")), pausalMonthly: num($("pausalMonthly")), accountantMonthly: num($("accountantMonthly")) });
-        row("Ostaje ti (neto)", c.net, true);
-        row("Prihod (fakturisano)", c.gross);
-        row("Bankarske provizije / konverzija", c.fees);
-        row("Paušal: porez + doprinosi", c.pausal);
-        if (c.accountant) row("Knjigovođa", c.accountant);
-        notes.push("Godišnji promet: " + fmt(c.annualTurnover, "RSD") + " (" + Math.round(c.limitUsage * 100) + "% limita od " + fmt(P.pausalLimit, "RSD") + ").");
-        if (c.overLimit) notes.push("Iznad limita za paušal: prelazak na knjige / ličnu zaradu ili d.o.o. menja računicu.");
+        notes.push("Godišnji promet: " + fmt(mine.res.annualTurnover, "RSD") + " (" + Math.round(mine.res.limitUsage * 100) + "% limita od " + fmt(P.pausalLimit, "RSD") + ").");
+        if (mine.res.overLimit) notes.push("Iznad limita za paušal: prelazak na knjige, ličnu zaradu ili d.o.o. menja računicu.");
       }
-      if (period !== "month") notes.push("Mesečni iznos: " + fmt(monthly / r, cur) + (cur !== "RSD" ? " = " + fmt(monthly, "RSD") : "") + (period === "hour" ? " (" + hours + " h nedeljno × 52 / 12)" : " (godišnje / 12)") + ".");
 
-      $("calcOut").innerHTML = rows.join("");
-      $("calcHead2").textContent = other;
-      $("calcNotes").innerHTML = notes.map(function (n) { return "<li>" + n + "</li>"; }).join("");
+      $("calcOut").innerHTML = html.join("");
+      $("calcNotes").innerHTML = notes.map(function (n) { return "<li>" + esc(n) + "</li>"; }).join("");
     }
 
+    $("amount").addEventListener("input", function () { manualAmount = true; });
+    if ($("markup")) $("markup").addEventListener("input", function () { manualAmount = false; });
     form.addEventListener("input", render);
-    form.addEventListener("change", render);
-    $("resetRates") && $("resetRates").addEventListener("click", function () {
-      st = Object.assign({}, DEFAULTS); save(st);
-      ["rateEUR", "rateUSD", "rateGBP", "feePct", "pausalMonthly", "accountantMonthly", "hours"].forEach(function (k) { if ($(k)) $(k).value = st[k]; });
+    form.addEventListener("change", function (e) {
+      if (e.target && (e.target.id === "currency" || e.target.id === "period" || e.target.id === "kind" || e.target.name === "mode")) manualAmount = false;
       render();
     });
+    $("resetRates").addEventListener("click", function () { setRates(); manualAmount = false; render(); });
     render();
   }
 

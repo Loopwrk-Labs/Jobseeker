@@ -2,7 +2,9 @@ import { Hono } from 'hono';
 import type { Env, SessionUser, JobRow, JobStatus } from '../../types';
 import { STATUSES, STATUS_LABEL, STATUS_COLOR, LEVEL_LABEL, SOURCE_LABEL, isStatus, isLevel } from '../../types';
 import { Layout, Topbar } from '../../views/layout';
-import { StatusPill, LevelTag, FitBadge, Flash, safeUrl, hostOf, fmtDate, fmtDateTime, todayISO } from '../../views/helpers';
+import { StatusPill, LevelTag, FitBadge, Flash, safeUrl, hostOf, fmtDate, fmtDateTime, todayISO, SalaryTag, RisksText, salaryText } from '../../views/helpers';
+import { getRates } from '../fx/service';
+import { CalcPanel, CALC_FOOTNOTE, type CalcOffer } from '../calculator/view';
 import { parseDateInput, stripDashes } from '../../lib/format';
 import {
   listJobs,
@@ -58,7 +60,44 @@ function readInput(body: Record<string, unknown>): JobInput | string {
     risks: str(body.risks) && stripDashes(str(body.risks)!),
     next_step: str(body.next_step),
     notes: str(body.notes),
+    ...readSalary(body),
   };
+}
+
+function numOrNull(v: unknown): number | null {
+  const n = Number(String(v ?? '').replace(/\s/g, '').replace(',', '.'));
+  return String(v ?? '').trim() && isFinite(n) && n > 0 ? n : null;
+}
+
+function readSalary(body: Record<string, unknown>) {
+  let min = numOrNull(body.salary_min);
+  let max = numOrNull(body.salary_max);
+  if (min != null && max != null && min > max) [min, max] = [max, min];
+  const has = min != null || max != null;
+  const cur = String(body.salary_currency ?? '');
+  const per = String(body.salary_period ?? '');
+  const kind = String(body.salary_kind ?? '');
+  return {
+    salary_min: min,
+    salary_max: max,
+    salary_currency: has ? (['EUR', 'USD', 'GBP', 'RSD'].includes(cur) ? cur : 'EUR') : null,
+    salary_period: has ? (['month', 'year', 'hour'].includes(per) ? per : 'month') : null,
+    salary_kind: has ? (kind === 'net' ? 'net' : 'gross') : null,
+  };
+}
+
+/** Contractor-style postings default the calculator to the paušal view. */
+function defaultCalcMode(j: JobRow): 'emp' | 'contr' {
+  const t = `${j.contract_type ?? ''} ${j.risks ?? ''}`.toLowerCase();
+  return /contractor|contract|b2b|freelanc|upwork|hourly|ugovor o delu|paušal|eor/.test(t) && !/ugovor o radu|permanent/.test(t) ? 'contr' : 'emp';
+}
+
+function offerOf(j: JobRow): CalcOffer | null {
+  const label = salaryText(j);
+  if (!label) return null;
+  const min = (j.salary_min ?? j.salary_max)!;
+  const max = (j.salary_max ?? j.salary_min)!;
+  return { min, max, currency: j.salary_currency ?? 'EUR', period: j.salary_period ?? 'month', kind: j.salary_kind ?? 'gross', label };
 }
 
 function dueTag(j: JobRow) {
@@ -171,6 +210,7 @@ jobRoutes.get('/jobs', async (c) => {
                       <a href={`/jobs/${j.id}`} class="card-mini">
                         <div class="name">{j.title}</div>
                         <div class="co">{j.company}</div>
+                        <SalaryTag job={j} />
                         <div class="foot">
                           <LevelTag level={j.level} />
                           <FitBadge fit={j.fit} />
@@ -192,6 +232,7 @@ jobRoutes.get('/jobs', async (c) => {
                   <th>Nivo</th>
                   <th>Fit</th>
                   <th>Status</th>
+                  <th>Plata (oglas)</th>
                   <th>Lokacija</th>
                   <th>Zašto / rizici</th>
                   <th>Sledeći korak</th>
@@ -212,8 +253,9 @@ jobRoutes.get('/jobs', async (c) => {
                       <StatusPill status={j.status} />
                       {dueTag(j) && <div style="margin-top:4px">{dueTag(j)}</div>}
                     </td>
+                    <td style="white-space:nowrap">{salaryText(j) ? <SalaryTag job={j} /> : <span class="faint">—</span>}</td>
                     <td class="wrap" style="min-width:160px">{j.location ?? '—'}</td>
-                    <td class="wrap">{j.risks ?? '—'}</td>
+                    <td class="wrap">{j.risks ? <RisksText text={j.risks} /> : '—'}</td>
                     <td class="wrap" style="min-width:180px">{j.next_step ?? '—'}</td>
                     <td>{safeUrl(j.url) ? <a class="host" href={safeUrl(j.url)!} target="_blank" rel="noopener noreferrer">{hostOf(j.url)} ↗</a> : '—'}</td>
                     <td class="mono" style="font-size:.74rem">{fmtDate(j.found_at)}</td>
@@ -252,6 +294,29 @@ function JobForm({ job, action, error }: { job?: Partial<JobRow>; action: string
       <div class="form-grid">
         <div class="field"><label>Lokacija</label><input name="location" placeholder="Remote Europe, Srbija na listi" value={job?.location ?? ''} /></div>
         <div class="field"><label>Link (originalni oglas)</label><input name="url" type="url" value={job?.url ?? ''} /></div>
+      </div>
+      <div class="form-grid five">
+        <div class="field"><label>Plata od</label><input name="salary_min" inputmode="decimal" value={job?.salary_min ?? ''} /></div>
+        <div class="field"><label>Plata do</label><input name="salary_max" inputmode="decimal" value={job?.salary_max ?? ''} /></div>
+        <div class="field">
+          <label>Valuta</label>
+          <select name="salary_currency">
+            {['EUR', 'USD', 'GBP', 'RSD'].map((c) => <option value={c} selected={(job?.salary_currency ?? 'EUR') === c}>{c}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <label>Period</label>
+          <select name="salary_period">
+            {([['month', 'Mesečno'], ['year', 'Godišnje'], ['hour', 'Po satu']] as const).map(([v, l]) => <option value={v} selected={(job?.salary_period ?? 'month') === v}>{l}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <label>Bruto / neto</label>
+          <select name="salary_kind">
+            <option value="gross" selected={job?.salary_kind !== 'net'}>Bruto</option>
+            <option value="net" selected={job?.salary_kind === 'net'}>Neto</option>
+          </select>
+        </div>
       </div>
       <div class="field"><label>Zašto / rizici</label><textarea name="risks" rows={3}>{job?.risks ?? ''}</textarea></div>
       <div class="field"><label>Sledeći korak</label><input name="next_step" value={job?.next_step ?? ''} /></div>
@@ -300,7 +365,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
   const id = Number(c.req.param('id'));
   const job = await getJob(c.env.DB, id);
   if (!job) return c.text('Posao ne postoji.', 404);
-  const [events, pkg] = await Promise.all([listEvents(c.env.DB, id), getPackage(c.env.DB, id)]);
+  const [events, pkg, fx] = await Promise.all([listEvents(c.env.DB, id), getPackage(c.env.DB, id), getRates(c.env.DB)]);
   const ok = c.req.query('ok');
   const edit = c.req.query('edit') === '1';
   const link = safeUrl(job.url);
@@ -315,6 +380,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
             <h1>{job.title}</h1>
             <div class="co">
               {job.company} · <LevelTag level={job.level} /> · <FitBadge fit={job.fit} />
+              {salaryText(job) && <> · <SalaryTag job={job} /></>}
             </div>
           </div>
           <div class="inline-actions">
@@ -342,9 +408,19 @@ jobRoutes.get('/jobs/:id', async (c) => {
                   <div><div class="k">Ugovor</div><div class="v">{job.contract_type ?? '—'}</div></div>
                   <div><div class="k">Domen</div><div class="v">{job.domain ?? '—'}</div></div>
                 </div>
-                {job.risks && <div class="kv-note"><div class="k">Zašto / rizici</div>{job.risks}</div>}
+                {job.risks && <div class="kv-note"><div class="k">Zašto / rizici</div><RisksText text={job.risks} /></div>}
                 {job.next_step && <div class="kv-note"><div class="k">Sledeći korak</div>{job.next_step}</div>}
                 {job.notes && <div class="kv-note"><div class="k">Moje beleške</div>{job.notes}</div>}
+              </div>
+
+              <div class="panel">
+                <div class="panel-head">
+                  <h3>Kalkulator plate</h3>
+                  <a href="/calculator" class="faint mono" style="font-size:.7rem">veliki kalkulator →</a>
+                </div>
+                {!offerOf(job) && <div class="faint" style="font-size:.86rem;margin-bottom:10px">Oglas nema navedenu platu. Upiši je u „Izmeni“ ako je saznaš, pa ćeš ovde dobiti poređenje sa svojom ponudom.</div>}
+                <CalcPanel fx={fx} offer={offerOf(job)} mode={defaultCalcMode(job)} compact />
+                <div class="faint calc-foot">{CALC_FOOTNOTE}</div>
               </div>
 
               <div class="panel">
@@ -418,6 +494,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
         )}
       </div>
       <script src="/copy.js" defer></script>
+      {!edit && <script src="/calculator.js" defer></script>}
     </Layout>,
   );
 });
