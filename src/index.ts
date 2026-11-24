@@ -8,6 +8,7 @@ import { excludedRoutes } from './modules/excluded/routes';
 import { agentRoutes } from './modules/agent/routes';
 import { profileRoutes } from './modules/profile/routes';
 import { settingsRoutes } from './modules/settings/routes';
+import { calculatorRoutes } from './modules/calculator/routes';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: SessionUser | null } }>();
 
@@ -30,6 +31,7 @@ app.route('/', excludedRoutes);
 app.route('/', agentRoutes);
 app.route('/', profileRoutes);
 app.route('/', settingsRoutes);
+app.route('/', calculatorRoutes);
 
 app.notFound((c) => c.text('Nema te stranice.', 404));
 

@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { href: '/', key: 'dashboard', label: 'Pregled' },
   { href: '/jobs', key: 'jobs', label: 'Poslovi' },
   { href: '/excluded', key: 'excluded', label: 'Izbačeni' },
+  { href: '/calculator', key: 'calculator', label: 'Kalkulator' },
   { href: '/agent', key: 'agent', label: 'Agent' },
   { href: '/profile', key: 'profile', label: 'Profil i kriterijumi' },
 ] as const;
@@ -34,6 +35,13 @@ function NavIcon({ name }: { name: string }) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
           <circle cx="12" cy="12" r="9"></circle>
           <path d="M5.6 5.6l12.8 12.8"></path>
+        </svg>
+      );
+    case 'calculator':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <rect x="5" y="3" width="14" height="18" rx="2"></rect>
+          <path d="M8 7h8M8.5 11h.01M12 11h.01M15.5 11h.01M8.5 14.5h.01M12 14.5h.01M15.5 14.5h.01M8.5 18h.01M12 18h3.5"></path>
         </svg>
       );
     case 'agent':
