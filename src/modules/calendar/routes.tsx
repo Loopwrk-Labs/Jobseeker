@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import type { Env, SessionUser } from '../../types';
+import type { Env, SessionUser, JobStatus } from '../../types';
+import { STATUSES, STATUS_LABEL, STATUS_COLOR } from '../../types';
 import { Layout, Topbar } from '../../views/layout';
 import { Flash, safeUrl } from '../../views/helpers';
 import { localToUtc, utcToLocal, fmtWhen } from '../../lib/tz';
@@ -169,10 +170,21 @@ const hhmm = (iso: string) => new Intl.DateTimeFormat('sr-Latn-RS', { timeZone: 
 const MONTHS = ['januar', 'februar', 'mart', 'april', 'maj', 'jun', 'jul', 'avgust', 'septembar', 'oktobar', 'novembar', 'decembar'];
 const WD = ['pon', 'uto', 'sre', 'čet', 'pet', 'sub', 'ned'];
 
-interface CalEvent { day: string; kind: 'iv' | 'fu' | 'applied'; time?: string; label: string; href: string; title: string }
+type Kind = 'iv' | 'fu' | 'applied' | 'found';
+interface CalEvent { day: string; kind: Kind; status: JobStatus; time?: string; label: string; sub: string; href: string }
 
-const KIND_LABEL: Record<CalEvent['kind'], string> = { iv: 'Intervju', fu: 'Follow-up', applied: 'Prijava poslata' };
+const KIND_LABEL: Record<Kind, string> = { iv: 'Intervju', fu: 'Follow-up', applied: 'Prijava poslata', found: 'Pronađen oglas' };
+const KIND_ICON: Record<Kind, string> = { iv: '', fu: '↻', applied: '✓', found: '+' };
+const KIND_DEFAULT_ON: Kind[] = ['iv', 'fu', 'applied'];
 const WD_LONG = ['ponedeljak', 'utorak', 'sreda', 'četvrtak', 'petak', 'subota', 'nedelja'];
+
+function Ev({ e, cls }: { e: CalEvent; cls: string }) {
+  return (
+    <a href={e.href} class={`${cls} kind-${e.kind}`} data-kind={e.kind} data-status={e.status} style={`--k:${STATUS_COLOR[e.status]}`} title={`${KIND_LABEL[e.kind]} · ${e.label} · ${e.sub} · ${STATUS_LABEL[e.status]}`}>
+      {e.kind === 'iv' ? <b>{e.time}</b> : <span class="ic">{KIND_ICON[e.kind]}</span>} {e.label}
+    </a>
+  );
+}
 
 function MonthGrid({ ym, events, today, selected }: { ym: string; events: CalEvent[]; today: string; selected: string }) {
   const [y, m] = ym.split('-').map(Number);
@@ -183,88 +195,90 @@ function MonthGrid({ ym, events, today, selected }: { ym: string; events: CalEve
   for (let i = 0; i < 42; i++) days.push(new Date(start.getTime() + i * 86400000).toISOString().slice(0, 10));
   const weeks = days[35].slice(0, 7) === ym ? 6 : 5;
   const byDay = new Map<string, CalEvent[]>();
+  const KO: Kind[] = ['iv', 'fu', 'applied', 'found'];
   for (const e of events) byDay.set(e.day, [...(byDay.get(e.day) ?? []), e]);
-  const order = (a: CalEvent, b: CalEvent) => ['iv', 'fu', 'applied'].indexOf(a.kind) - ['iv', 'fu', 'applied'].indexOf(b.kind) || (a.time ?? '').localeCompare(b.time ?? '');
+  const order = (a: CalEvent, b: CalEvent) => KO.indexOf(a.kind) - KO.indexOf(b.kind) || (a.time ?? '').localeCompare(b.time ?? '');
   const prev = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
   const next = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
-  const inMonth = events.filter((e) => e.day.slice(0, 7) === ym);
-  const count = (k: CalEvent['kind']) => inMonth.filter((e) => e.kind === k).length;
   const sel = (byDay.get(selected) ?? []).sort(order);
   const selDate = new Date(selected + 'T12:00:00Z');
   const selLabel = `${WD_LONG[(selDate.getUTCDay() + 6) % 7]}, ${Number(selected.slice(8))}. ${MONTHS[Number(selected.slice(5, 7)) - 1]}`;
-  const dayHref = (d: string) => `/calendar?m=${d.slice(0, 7)}&d=${d}#cal`;
+  const dayHref = (d: string) => `/calendar?m=${d.slice(0, 7)}&d=${d}`;
+  const inMonth = events.filter((e) => e.day.slice(0, 7) === ym);
 
   return (
     <div class="panel calx" id="cal">
       <div class="calx-head">
-        <div>
-          <div class="calx-month">{MONTHS[m - 1]} <span>{y}</span></div>
-          <div class="calx-sum">
-            <span><i class="k-iv"></i>{count('iv')} {count('iv') === 1 ? 'intervju' : 'intervjua'}</span>
-            <span><i class="k-fu"></i>{count('fu')} follow-up</span>
-            <span><i class="k-applied"></i>{count('applied')} {count('applied') === 1 ? 'prijava' : 'prijava'}</span>
-          </div>
-        </div>
+        <div class="calx-month">{MONTHS[m - 1]} <span>{y}</span></div>
         <div class="calx-nav">
-          <a href={`/calendar?m=${prev}#cal`} aria-label="Prethodni mesec">‹</a>
-          <a href={`/calendar#cal`} class="t">Danas</a>
-          <a href={`/calendar?m=${next}#cal`} aria-label="Sledeći mesec">›</a>
+          <a href={`/calendar?m=${prev}`} aria-label="Prethodni mesec">‹</a>
+          <a href="/calendar" class="t">Danas</a>
+          <a href={`/calendar?m=${next}`} aria-label="Sledeći mesec">›</a>
+        </div>
+      </div>
+
+      <div class="calx-filters" id="calFilters">
+        <div class="fgroup">
+          <span class="fl">Prikaži</span>
+          {KO.map((k) => (
+            <button type="button" class="fchip" data-f="kind" data-v={k} aria-pressed={KIND_DEFAULT_ON.includes(k) ? 'true' : 'false'}>
+              <span class="ic">{k === 'iv' ? '◷' : KIND_ICON[k]}</span>{KIND_LABEL[k]}<em data-count-kind={k}>{inMonth.filter((e) => e.kind === k).length}</em>
+            </button>
+          ))}
+        </div>
+        <div class="fgroup">
+          <span class="fl">Status</span>
+          {STATUSES.map((st) => (
+            <button type="button" class="fchip st" data-f="status" data-v={st} aria-pressed="true" style={`--k:${STATUS_COLOR[st]}`}>
+              <i></i>{STATUS_LABEL[st]}<em data-count-status={st}>{inMonth.filter((e) => e.status === st).length}</em>
+            </button>
+          ))}
+          <button type="button" class="fchip reset" id="calReset" title="Vrati podrazumevane filtere">Resetuj</button>
         </div>
       </div>
 
       <div class="calx-body">
-      <div class="calx-grid">
-        {WD.map((d, i) => <div class={`calx-wd ${i > 4 ? 'we' : ''}`}>{d}</div>)}
-        {days.slice(0, weeks * 7).map((d, i) => {
-          const ev = (byDay.get(d) ?? []).sort(order);
-          const out = d.slice(0, 7) !== ym;
-          const ivs = ev.filter((e) => e.kind === 'iv');
-          const rest = ev.filter((e) => e.kind !== 'iv');
-          const cls = ['calx-day', out && 'out', d === today && 'today', d === selected && 'sel', i % 7 > 4 && 'we', d < today && 'past'].filter(Boolean).join(' ');
-          return (
-            <a href={dayHref(d)} class={cls} aria-label={`${d}: ${ev.length} stavki`}>
-              <span class="calx-n">{Number(d.slice(8))}</span>
-              {!out && (
-                <span class="calx-evs">
-                  {ivs.slice(0, 3).map((e) => <span class="calx-iv"><b>{e.time}</b> {e.label}</span>)}
-                  {rest.slice(0, Math.max(0, 4 - Math.min(ivs.length, 3))).map((e) => <span class={`calx-sm k-${e.kind}`}><i></i>{e.label}</span>)}
-                  {ev.length > Math.min(ivs.length, 3) + Math.max(0, 4 - Math.min(ivs.length, 3)) && <span class="calx-x">+{ev.length - Math.min(ivs.length, 3) - Math.max(0, 4 - Math.min(ivs.length, 3))} još</span>}
-                  {ev.length > 0 && (
-                    <span class="calx-dots">
-                      {ivs.map(() => <i class="k-iv"></i>)}
-                      {rest.slice(0, 5).map((e) => <i class={`k-${e.kind}`}></i>)}
-                      {rest.length > 5 && <em>+{rest.length - 5}</em>}
-                    </span>
-                  )}
-                </span>
-              )}
-            </a>
-          );
-        })}
-      </div>
-
-      <div class="calx-agenda">
-        <div class="calx-agenda-head">
-          <span class="calx-agenda-day">{selected === today ? 'Danas · ' : ''}{selLabel}</span>
-          {selected >= today && <a href={`/calendar?view=intervjui&new=${selected}#add`} class="btn btn-line btn-sm">+ Zakaži intervju</a>}
+        <div class="calx-grid">
+          {WD.map((d, i) => <div class={`calx-wd ${i > 4 ? 'we' : ''}`}>{d}</div>)}
+          {days.slice(0, weeks * 7).map((d, i) => {
+            const ev = (byDay.get(d) ?? []).sort(order);
+            const out = d.slice(0, 7) !== ym;
+            const cls = ['calx-day', out && 'out', d === today && 'today', d === selected && 'sel', i % 7 > 4 && 'we', d < today && 'past'].filter(Boolean).join(' ');
+            return (
+              <div class={cls}>
+                <a href={dayHref(d)} class="calx-n" aria-label={`Otvori ${d}`}>{Number(d.slice(8))}</a>
+                {!out && (
+                  <div class="calx-evs">
+                    {ev.map((e) => <Ev e={e} cls="calx-e" />)}
+                    <a href={dayHref(d)} class="calx-x" hidden></a>
+                  </div>
+                )}
+                {!out && ev.length > 0 && <a href={dayHref(d)} class="calx-dots">{ev.map((e) => <i data-kind={e.kind} data-status={e.status} style={`--k:${STATUS_COLOR[e.status]}`}></i>)}</a>}
+              </div>
+            );
+          })}
         </div>
-        {sel.length === 0 ? (
-          <div class="calx-empty">Ništa za ovaj dan.</div>
-        ) : (
+
+        <div class="calx-agenda">
+          <div class="calx-agenda-head">
+            <span class="calx-agenda-day">{selected === today ? 'Danas · ' : ''}{selLabel}</span>
+            {selected >= today && <a href={`/calendar?view=intervjui&new=${selected}#add`} class="btn btn-line btn-sm">+ Zakaži intervju</a>}
+          </div>
           <ul class="calx-list">
             {sel.map((e) => (
-              <li>
-                <a href={e.href} class={`calx-item k-${e.kind}`}>
-                  <span class={`calx-time ${e.time ? '' : 'none'}`}>{e.time ?? (e.kind === 'fu' ? 'rok' : 'poslato')}</span>
-                  <span class="calx-what"><b>{e.label}</b><span>{KIND_LABEL[e.kind]}{e.title.includes(' · ') ? ` · ${e.title.split(' · ').slice(1).join(' · ')}` : ''}</span></span>
-                  <span class="calx-go">›</span>
+              <li data-kind={e.kind} data-status={e.status}>
+                <a href={e.href} class="calx-item" style={`--k:${STATUS_COLOR[e.status]}`}>
+                  <span class={`calx-time ${e.time ? '' : 'none'}`}>{e.time ?? KIND_LABEL[e.kind].split(' ')[0]}</span>
+                  <span class="calx-what"><b>{e.label}</b><span>{KIND_LABEL[e.kind]} · {e.sub}</span></span>
+                  <span class="calx-st">{STATUS_LABEL[e.status]}</span>
                 </a>
               </li>
             ))}
           </ul>
-        )}
+          <div class="calx-empty" id="calEmpty" hidden={sel.length > 0}>Ništa za ovaj dan.</div>
+        </div>
       </div>
-      </div>
+      <script src="/calendar.js" defer></script>
     </div>
   );
 }
@@ -287,15 +301,18 @@ calendarRoutes.get('/calendar', async (c) => {
   const [gy, gm] = ym.split('-').map(Number);
   const from = new Date(Date.UTC(gy, gm - 1, -7)).toISOString();
   const to = new Date(Date.UTC(gy, gm, 8)).toISOString();
-  const [ivM, fuM, apM] = await Promise.all([
-    c.env.DB.prepare('SELECT i.id, i.job_id, i.title, i.starts_at, i.with_whom, j.company FROM interviews i LEFT JOIN jobs j ON j.id = i.job_id WHERE i.starts_at BETWEEN ? AND ?').bind(from, to).all<{ id: number; job_id: number | null; title: string | null; starts_at: string; with_whom: string | null; company: string | null }>(),
-    c.env.DB.prepare("SELECT id, company, title, follow_up_on FROM jobs WHERE status = 'applied' AND follow_up_on BETWEEN ? AND ?").bind(from.slice(0, 10), to.slice(0, 10)).all<{ id: number; company: string; title: string; follow_up_on: string }>(),
-    c.env.DB.prepare('SELECT id, company, title, applied_at FROM jobs WHERE applied_at BETWEEN ? AND ?').bind(from.slice(0, 10), to.slice(0, 10)).all<{ id: number; company: string; title: string; applied_at: string }>(),
+  type JRow = { id: number; company: string; title: string; status: JobStatus };
+  const [ivM, fuM, apM, foM] = await Promise.all([
+    c.env.DB.prepare('SELECT i.id, i.job_id, i.title, i.starts_at, i.with_whom, j.company, j.title AS job_title, j.status FROM interviews i LEFT JOIN jobs j ON j.id = i.job_id WHERE i.starts_at BETWEEN ? AND ?').bind(from, to).all<{ id: number; job_id: number | null; title: string | null; starts_at: string; with_whom: string | null; company: string | null; job_title: string | null; status: JobStatus | null }>(),
+    c.env.DB.prepare("SELECT id, company, title, status, follow_up_on FROM jobs WHERE status = 'applied' AND follow_up_on BETWEEN ? AND ?").bind(from.slice(0, 10), to.slice(0, 10)).all<JRow & { follow_up_on: string }>(),
+    c.env.DB.prepare('SELECT id, company, title, status, applied_at FROM jobs WHERE applied_at BETWEEN ? AND ?').bind(from.slice(0, 10), to.slice(0, 10)).all<JRow & { applied_at: string }>(),
+    c.env.DB.prepare('SELECT id, company, title, status, found_at FROM jobs WHERE found_at BETWEEN ? AND ?').bind(from.slice(0, 10), to.slice(0, 10)).all<JRow & { found_at: string }>(),
   ]);
   const calEvents: CalEvent[] = [
-    ...(ivM.results ?? []).map((r) => ({ day: dayKey(r.starts_at), kind: 'iv' as const, time: hhmm(r.starts_at), label: r.company ?? r.title ?? 'Intervju', href: r.job_id ? `/jobs/${r.job_id}?tab=intervjui#fb-${r.id}` : `/calendar?view=intervjui#fb-${r.id}`, title: `${r.title ?? 'Intervju'}${r.company ? ` · ${r.company}` : ''}${r.with_whom ? ` · ${r.with_whom}` : ''}` })),
-    ...(fuM.results ?? []).map((r) => ({ day: r.follow_up_on.slice(0, 10), kind: 'fu' as const, label: r.company, href: `/jobs/${r.id}`, title: `Follow-up: ${r.company} · ${r.title}` })),
-    ...(apM.results ?? []).map((r) => ({ day: r.applied_at.slice(0, 10), kind: 'applied' as const, label: r.company, href: `/jobs/${r.id}`, title: `Prijava poslata: ${r.company} · ${r.title}` })),
+    ...(ivM.results ?? []).map((r) => ({ day: dayKey(r.starts_at), kind: 'iv' as const, status: r.status ?? 'interview', time: hhmm(r.starts_at), label: r.company ?? r.title ?? 'Intervju', sub: [r.title, r.with_whom].filter(Boolean).join(' · ') || 'Intervju', href: r.job_id ? `/jobs/${r.job_id}?tab=intervjui#fb-${r.id}` : `/calendar?view=intervjui#fb-${r.id}` })),
+    ...(fuM.results ?? []).map((r) => ({ day: r.follow_up_on.slice(0, 10), kind: 'fu' as const, status: r.status, label: r.company, sub: r.title, href: `/jobs/${r.id}` })),
+    ...(apM.results ?? []).map((r) => ({ day: r.applied_at.slice(0, 10), kind: 'applied' as const, status: r.status, label: r.company, sub: r.title, href: `/jobs/${r.id}` })),
+    ...(foM.results ?? []).map((r) => ({ day: r.found_at.slice(0, 10), kind: 'found' as const, status: r.status, label: r.company, sub: r.title, href: `/jobs/${r.id}` })),
   ];
   const newDay = /^\d{4}-\d{2}-\d{2}$/.test(c.req.query('new') ?? '') ? c.req.query('new')! : null;
   const qd = c.req.query('d') ?? '';
@@ -310,7 +327,7 @@ calendarRoutes.get('/calendar', async (c) => {
   return c.html(
     <Layout title="Kalendar" active="calendar" user={user}>
       <Topbar crumb={<b>Kalendar intervjua</b>} />
-      <div class="content" style="max-width:1480px">
+      <div class={`content ${view === 'kalendar' ? 'content-full' : ''}`} style={view === 'kalendar' ? '' : 'max-width:1480px'}>
         {ok && <Flash>{ok === 'del' ? 'Intervju je obrisan.' : ok === 'fb' ? 'Ocena je sačuvana.' : 'Intervju je sačuvan.'}</Flash>}
         {fState === 'ok' && <Flash>Fathom je povezan. Snimci intervjua stižu ovde sami.</Flash>}
         {fState === 'off' && <Flash>Fathom je isključen.</Flash>}
