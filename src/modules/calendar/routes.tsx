@@ -171,7 +171,10 @@ const WD = ['pon', 'uto', 'sre', 'čet', 'pet', 'sub', 'ned'];
 
 interface CalEvent { day: string; kind: 'iv' | 'fu' | 'applied'; time?: string; label: string; href: string; title: string }
 
-function MonthGrid({ ym, events, today }: { ym: string; events: CalEvent[]; today: string }) {
+const KIND_LABEL: Record<CalEvent['kind'], string> = { iv: 'Intervju', fu: 'Follow-up', applied: 'Prijava poslata' };
+const WD_LONG = ['ponedeljak', 'utorak', 'sreda', 'četvrtak', 'petak', 'subota', 'nedelja'];
+
+function MonthGrid({ ym, events, today, selected }: { ym: string; events: CalEvent[]; today: string; selected: string }) {
   const [y, m] = ym.split('-').map(Number);
   const first = new Date(Date.UTC(y, m - 1, 1));
   const offset = (first.getUTCDay() + 6) % 7; // Monday first
@@ -181,39 +184,83 @@ function MonthGrid({ ym, events, today }: { ym: string; events: CalEvent[]; toda
   const weeks = days[35].slice(0, 7) === ym ? 6 : 5;
   const byDay = new Map<string, CalEvent[]>();
   for (const e of events) byDay.set(e.day, [...(byDay.get(e.day) ?? []), e]);
+  const order = (a: CalEvent, b: CalEvent) => ['iv', 'fu', 'applied'].indexOf(a.kind) - ['iv', 'fu', 'applied'].indexOf(b.kind) || (a.time ?? '').localeCompare(b.time ?? '');
   const prev = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
   const next = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
+  const inMonth = events.filter((e) => e.day.slice(0, 7) === ym);
+  const count = (k: CalEvent['kind']) => inMonth.filter((e) => e.kind === k).length;
+  const sel = (byDay.get(selected) ?? []).sort(order);
+  const selDate = new Date(selected + 'T12:00:00Z');
+  const selLabel = `${WD_LONG[(selDate.getUTCDay() + 6) % 7]}, ${Number(selected.slice(8))}. ${MONTHS[Number(selected.slice(5, 7)) - 1]}`;
+  const dayHref = (d: string) => `/calendar?m=${d.slice(0, 7)}&d=${d}#cal`;
+
   return (
-    <div class="panel cal-panel">
-      <div class="cal-head">
-        <h3 class="cal-title">{MONTHS[m - 1]} {y}</h3>
-        <div class="cal-nav">
-          <a href={`/calendar?m=${prev}`} class="btn btn-line btn-sm" aria-label="Prethodni mesec">←</a>
-          <a href="/calendar" class="btn btn-line btn-sm">Danas</a>
-          <a href={`/calendar?m=${next}`} class="btn btn-line btn-sm" aria-label="Sledeći mesec">→</a>
+    <div class="panel calx" id="cal">
+      <div class="calx-head">
+        <div>
+          <div class="calx-month">{MONTHS[m - 1]} <span>{y}</span></div>
+          <div class="calx-sum">
+            <span><i class="k-iv"></i>{count('iv')} {count('iv') === 1 ? 'intervju' : 'intervjua'}</span>
+            <span><i class="k-fu"></i>{count('fu')} follow-up</span>
+            <span><i class="k-applied"></i>{count('applied')} {count('applied') === 1 ? 'prijava' : 'prijava'}</span>
+          </div>
         </div>
-        <div class="cal-legend"><span><i class="k-iv"></i>intervju</span><span><i class="k-fu"></i>follow-up</span><span><i class="k-applied"></i>prijava poslata</span></div>
+        <div class="calx-nav">
+          <a href={`/calendar?m=${prev}#cal`} aria-label="Prethodni mesec">‹</a>
+          <a href={`/calendar#cal`} class="t">Danas</a>
+          <a href={`/calendar?m=${next}#cal`} aria-label="Sledeći mesec">›</a>
+        </div>
       </div>
-      <div class="cal-grid">
-        {WD.map((d) => <div class="cal-wd">{d}</div>)}
-        {days.slice(0, weeks * 7).map((d) => {
-          const ev = (byDay.get(d) ?? []).sort((a, b) => (a.kind === 'iv' ? 0 : 1) - (b.kind === 'iv' ? 0 : 1) || (a.time ?? '').localeCompare(b.time ?? ''));
+
+      <div class="calx-grid">
+        {WD.map((d, i) => <div class={`calx-wd ${i > 4 ? 'we' : ''}`}>{d}</div>)}
+        {days.slice(0, weeks * 7).map((d, i) => {
+          const ev = (byDay.get(d) ?? []).sort(order);
           const out = d.slice(0, 7) !== ym;
+          const ivs = ev.filter((e) => e.kind === 'iv');
+          const rest = ev.filter((e) => e.kind !== 'iv');
+          const cls = ['calx-day', out && 'out', d === today && 'today', d === selected && 'sel', i % 7 > 4 && 'we', d < today && 'past'].filter(Boolean).join(' ');
           return (
-            <div class={`cal-day ${out ? 'out' : ''} ${d === today ? 'today' : ''} ${d < today ? 'past' : ''}`}>
-              <div class="cal-dn">
-                <span>{Number(d.slice(8))}</span>
-                {!out && d >= today && <a href={`/calendar?m=${ym}&new=${d}#add`} class="cal-add" title="Zakaži intervju ovog dana">+</a>}
-              </div>
-              {ev.slice(0, 4).map((e) => (
-                <a href={e.href} class={`cal-ev k-${e.kind}`} title={e.title}>
-                  {e.time && <b>{e.time}</b>} {e.label}
-                </a>
-              ))}
-              {ev.length > 4 && <div class="cal-more">+{ev.length - 4} još</div>}
-            </div>
+            <a href={dayHref(d)} class={cls} aria-label={`${d}: ${ev.length} stavki`}>
+              <span class="calx-n">{Number(d.slice(8))}</span>
+              {!out && (
+                <span class="calx-evs">
+                  {ivs.slice(0, 2).map((e) => <span class="calx-iv"><b>{e.time}</b> {e.label}</span>)}
+                  {ivs.length > 2 && <span class="calx-x">+{ivs.length - 2}</span>}
+                  {ev.length > 0 && (
+                    <span class="calx-dots">
+                      {ivs.map(() => <i class="k-iv m-only"></i>)}
+                      {rest.slice(0, 5).map((e) => <i class={`k-${e.kind}`}></i>)}
+                      {rest.length > 5 && <em>+{rest.length - 5}</em>}
+                    </span>
+                  )}
+                </span>
+              )}
+            </a>
           );
         })}
+      </div>
+
+      <div class="calx-agenda">
+        <div class="calx-agenda-head">
+          <span class="calx-agenda-day">{selected === today ? 'Danas · ' : ''}{selLabel}</span>
+          {selected >= today && <a href={`/calendar?m=${ym}&d=${selected}&new=${selected}#add`} class="btn btn-line btn-sm">+ Zakaži intervju</a>}
+        </div>
+        {sel.length === 0 ? (
+          <div class="calx-empty">Ništa za ovaj dan.</div>
+        ) : (
+          <ul class="calx-list">
+            {sel.map((e) => (
+              <li>
+                <a href={e.href} class={`calx-item k-${e.kind}`}>
+                  <span class={`calx-time ${e.time ? '' : 'none'}`}>{e.time ?? (e.kind === 'fu' ? 'rok' : 'poslato')}</span>
+                  <span class="calx-what"><b>{e.label}</b><span>{KIND_LABEL[e.kind]}{e.title.includes(' · ') ? ` · ${e.title.split(' · ').slice(1).join(' · ')}` : ''}</span></span>
+                  <span class="calx-go">›</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
@@ -248,6 +295,8 @@ calendarRoutes.get('/calendar', async (c) => {
     ...(apM.results ?? []).map((r) => ({ day: r.applied_at.slice(0, 10), kind: 'applied' as const, label: r.company, href: `/jobs/${r.id}`, title: `Prijava poslata: ${r.company} · ${r.title}` })),
   ];
   const newDay = /^\d{4}-\d{2}-\d{2}$/.test(c.req.query('new') ?? '') ? c.req.query('new')! : null;
+  const qd = c.req.query('d') ?? '';
+  const selected = /^\d{4}-\d{2}-\d{2}$/.test(qd) ? qd : ym === today.slice(0, 7) ? today : `${ym}-01`;
   const { fb, rec } = await extrasFor(c.env.DB, [...up, ...past].map((x) => x.id));
   const fathom = await getConfig(c.env.DB);
   const { results: loose } = await c.env.DB.prepare("SELECT id, title, started_at FROM recordings WHERE interview_id IS NULL ORDER BY started_at DESC LIMIT 15").all<{ id: number; title: string | null; started_at: string | null }>();
@@ -342,7 +391,7 @@ calendarRoutes.get('/calendar', async (c) => {
         )}
         </div>
         <div class="cal-right">
-          <MonthGrid ym={ym} events={calEvents} today={today} />
+          <MonthGrid ym={ym} events={calEvents} today={today} selected={selected} />
         </div>
         </div>
       </div>
