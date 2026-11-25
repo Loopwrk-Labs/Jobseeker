@@ -92,3 +92,60 @@ export function buildIcs(rows: InterviewRow[], origin: string): string {
   lines.push('END:VCALENDAR');
   return lines.join('\r\n') + '\r\n';
 }
+
+export interface FeedbackRow {
+  interview_id: number;
+  feeling: number | null;
+  feeling_text: string | null;
+  r_respect: number | null;
+  r_prep: number | null;
+  r_clarity: number | null;
+  r_time: number | null;
+  r_comms: number | null;
+  red_flags: string | null;
+  would_work: string | null;
+  notes: string | null;
+}
+export interface RecordingRow {
+  id: number;
+  external_id: string;
+  title: string | null;
+  started_at: string | null;
+  url: string | null;
+  share_url: string | null;
+  invitees: string | null;
+  summary: string | null;
+  action_items: string | null;
+  transcript: string | null;
+  analysis: string | null;
+  interview_id: number | null;
+}
+
+export async function extrasFor(db: D1Database, ids: number[]): Promise<{ fb: Map<number, FeedbackRow>; rec: Map<number, RecordingRow> }> {
+  const fb = new Map<number, FeedbackRow>();
+  const rec = new Map<number, RecordingRow>();
+  if (!ids.length) return { fb, rec };
+  const q = ids.map(() => '?').join(',');
+  const [a, b] = await Promise.all([
+    db.prepare(`SELECT * FROM interview_feedback WHERE interview_id IN (${q})`).bind(...ids).all<FeedbackRow>(),
+    db.prepare(`SELECT * FROM recordings WHERE interview_id IN (${q}) ORDER BY id`).bind(...ids).all<RecordingRow>(),
+  ]);
+  for (const r of a.results ?? []) fb.set(r.interview_id, r);
+  for (const r of b.results ?? []) if (r.interview_id) rec.set(r.interview_id, r);
+  return { fb, rec };
+}
+
+export const RATINGS: [keyof FeedbackRow, string][] = [
+  ['r_respect', 'Poštovanje i odnos'],
+  ['r_prep', 'Pripremljenost intervjuera'],
+  ['r_clarity', 'Jasnoća uloge i procesa'],
+  ['r_time', 'Tačnost i poštovanje vremena'],
+  ['r_comms', 'Komunikacija posle'],
+];
+export const FEELINGS = ['', '😣 Loše', '😕 Nelagodno', '😐 Neutralno', '🙂 Dobro', '😄 Odlično'];
+
+export function avgRating(f: FeedbackRow | null | undefined): number | null {
+  if (!f) return null;
+  const v = RATINGS.map(([k]) => f[k] as number | null).filter((x): x is number => typeof x === 'number');
+  return v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
+}

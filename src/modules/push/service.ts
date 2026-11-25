@@ -121,6 +121,27 @@ export async function runNotifications(db: D1Database): Promise<void> {
     await db.prepare("UPDATE interviews SET reminded_at = datetime('now') WHERE id = ?").bind(iv.id).run();
   }
 
+  // 2b) "Kako je prošlo?" ~30 min after an interview ends, if not rated yet.
+  const { results: done } = await db
+    .prepare(
+      `SELECT i.id, i.job_id, i.starts_at, i.duration_min, j.company FROM interviews i LEFT JOIN jobs j ON j.id = i.job_id
+       LEFT JOIN interview_feedback f ON f.interview_id = i.id
+       WHERE f.interview_id IS NULL AND i.feedback_asked_at IS NULL AND i.starts_at > ? AND i.starts_at < ?`,
+    )
+    .bind(new Date(now - 3 * 86400e3).toISOString(), new Date(now).toISOString())
+    .all<{ id: number; job_id: number | null; starts_at: string; duration_min: number; company: string | null }>();
+  for (const iv of done ?? []) {
+    const end = new Date(iv.starts_at).getTime() + (iv.duration_min || 45) * 60000;
+    if (now < end + 30 * 60000) continue;
+    notes.push({
+      title: `Kako je prošlo${iv.company ? ` sa ${iv.company}` : ''}?`,
+      body: 'Zapiši kako si se osećao i oceni intervjuera dok ti je sveže. Traje minut.',
+      url: iv.job_id ? `/jobs/${iv.job_id}?tab=intervjui#fb-${iv.id}` : `/calendar#fb-${iv.id}`,
+      tag: `fb-${iv.id}`,
+    });
+    await db.prepare("UPDATE interviews SET feedback_asked_at = datetime('now') WHERE id = ?").bind(iv.id).run();
+  }
+
   // 3) Morning digest (once a day, after 8:00 Belgrade): today's interviews + due follow-ups.
   const today = belgradeDay();
   if (belgradeHour() >= 8 && (await setting(db, 'push_digest_day')) !== today) {

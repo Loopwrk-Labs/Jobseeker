@@ -6,7 +6,7 @@ import { StatusPill, LevelTag, FitBadge, Flash, safeUrl, hostOf, fmtDate, fmtDat
 import { getRates } from '../fx/service';
 import { CalcPanel, CALC_FOOTNOTE, type CalcOffer } from '../calculator/view';
 import { parseRisks, type Fact } from './facts';
-import { jobInterviews } from '../calendar/service';
+import { jobInterviews, extrasFor } from '../calendar/service';
 import { InterviewItem, InterviewForm } from '../calendar/routes';
 import { jobContacts, ContactChip, ContactForm } from '../contacts/routes';
 import { listCvs } from '../materials/routes';
@@ -44,6 +44,7 @@ const OK_MSG: Record<string, string> = {
   ans: 'Odgovor je sačuvan u biblioteku.',
   iv: 'Intervju je sačuvan.',
   ct: 'Kontakt je sačuvan.',
+  fb: 'Ocena intervjua je sačuvana.',
   fu: 'Follow-up je podešen.',
   excluded: 'Posao je izbačen. Agent ga više neće vraćati.',
   deleted: 'Posao je obrisan.',
@@ -409,6 +410,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
     tab === 'prijava' ? listCvs(c.env.DB) : Promise.resolve([]),
     tab === 'plata' ? c.env.DB.prepare('SELECT * FROM salary_research WHERE job_id = ?').bind(id).first<MarketRow>() : Promise.resolve(null),
   ]);
+  const ivx = tab === 'intervjui' ? await extrasFor(c.env.DB, ivs.map((x) => x.id)) : { fb: new Map(), rec: new Map() };
   const nextIv = ivs.find((x) => new Date(x.starts_at).getTime() > Date.now() - 2 * 3600e3);
   const ok = c.req.query('ok');
   const edit = c.req.query('edit') === '1';
@@ -577,7 +579,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
                     <div class="panel">
                       <div class="panel-head"><h3>Intervjui</h3><AskClaude prompt={PROMPTS.prep(id, job.company, job.title)} label="Pripremi me za intervju" /></div>
                       {ivs.length === 0 && <div class="faint" style="font-size:.88rem;margin-bottom:10px">Nema zakazanih intervjua. Kad agent nađe poziv u mejlu, upisaće ga ovde.</div>}
-                      {ivs.map((r) => <InterviewItem r={r} showJob={false} back={`/jobs/${id}?tab=intervjui`} />)}
+                      {ivs.map((r) => <InterviewItem r={r} showJob={false} back={`/jobs/${id}?tab=intervjui`} fb={ivx.fb.get(r.id)} rec={ivx.rec.get(r.id)} />)}
                       <details style="margin-top:10px">
                         <summary class="panel-sum">+ Zakaži intervju</summary>
                         <div style="margin-top:12px"><InterviewForm jobId={id} back={`/jobs/${id}?tab=intervjui`} /></div>

@@ -3,6 +3,7 @@ import type { Env, SessionUser, JobRow } from '../../types';
 import { Layout, Topbar } from '../../views/layout';
 import { hostOf } from '../../views/helpers';
 import { parseRisks } from '../jobs/facts';
+import { FEELINGS } from '../calendar/service';
 
 type Vars = { user: SessionUser | null };
 export const statsRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -104,6 +105,14 @@ statsRoutes.get('/stats', async (c) => {
             (SELECT count(*) FROM interviews i WHERE i.job_id = j.id) AS n_iv FROM jobs j`,
   ).all<J>();
   const jobs = results ?? [];
+  const { results: exp } = await c.env.DB.prepare(
+    `SELECT j.id AS job_id, j.company, count(*) AS n, avg(f.feeling) AS feeling,
+            avg((coalesce(f.r_respect,0)+coalesce(f.r_prep,0)+coalesce(f.r_clarity,0)+coalesce(f.r_time,0)+coalesce(f.r_comms,0)) * 1.0 /
+                nullif((f.r_respect IS NOT NULL)+(f.r_prep IS NOT NULL)+(f.r_clarity IS NOT NULL)+(f.r_time IS NOT NULL)+(f.r_comms IS NOT NULL), 0)) AS score,
+            sum(f.would_work = 'yes') AS yes, sum(f.would_work = 'no') AS no, sum(f.red_flags IS NOT NULL AND f.red_flags != '') AS flags
+     FROM interview_feedback f JOIN interviews i ON i.id = f.interview_id LEFT JOIN jobs j ON j.id = i.job_id
+     GROUP BY j.id ORDER BY score DESC`,
+  ).all<{ job_id: number | null; company: string | null; n: number; feeling: number | null; score: number | null; yes: number; no: number; flags: number }>();
   const tot = aggregate(jobs, () => 'Sve')[0] ?? { key: '', total: 0, applied: 0, responded: 0, interviews: 0, offers: 0 };
   const rejectedAfter = jobs.filter((j) => applied(j) && j.status === 'rejected').length;
 
@@ -155,6 +164,27 @@ statsRoutes.get('/stats', async (c) => {
             ))}
           </div>
         </div>
+
+        {(exp ?? []).length > 0 && (
+          <div class="panel flush table-wrap" style="margin-bottom:16px">
+            <div class="panel-head" style="padding:16px 16px 0"><h3>Iskustvo sa intervjuima (tvoje ocene)</h3></div>
+            <table class="compact wide stats-t">
+              <thead><tr><th>Firma</th><th>Intervjua</th><th>Kako si se osećao</th><th>Ocena intervjuera</th><th>Radio bih kod njih</th><th>Red flags</th></tr></thead>
+              <tbody>
+                {(exp ?? []).map((e) => (
+                  <tr>
+                    <td class="job-title">{e.job_id ? <a href={`/jobs/${e.job_id}?tab=intervjui`}>{e.company}</a> : '—'}</td>
+                    <td class="mono">{e.n}</td>
+                    <td>{e.feeling ? FEELINGS[Math.round(e.feeling)] : '—'}</td>
+                    <td class="mono"><b>{e.score ? e.score.toFixed(1) : '—'}</b> / 5</td>
+                    <td class="mono">{e.yes ? 'da' : e.no ? 'ne' : '—'}</td>
+                    <td>{e.flags ? <span class="flag">⚑ {e.flags}</span> : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div class="legend" style="margin:0 0 10px"><i class="t-sent"></i>poslato <i class="t-resp"></i>odgovorili</div>
         <div class="stack">

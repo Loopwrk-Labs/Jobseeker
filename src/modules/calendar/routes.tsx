@@ -3,7 +3,12 @@ import type { Env, SessionUser } from '../../types';
 import { Layout, Topbar } from '../../views/layout';
 import { Flash, safeUrl } from '../../views/helpers';
 import { localToUtc, utcToLocal, fmtWhen } from '../../lib/tz';
-import { upcomingInterviews, pastInterviews, icsToken, buildIcs, allInterviews, type InterviewRow } from './service';
+import { upcomingInterviews, pastInterviews, icsToken, buildIcs, allInterviews, extrasFor, avgRating, RATINGS, FEELINGS, type InterviewRow, type FeedbackRow, type RecordingRow } from './service';
+import { raw } from 'hono/html';
+import { renderMarkdown } from '../../lib/markdown';
+import { AskClaude, PROMPTS } from '../../lib/claude';
+import { getConfig } from '../fathom/service';
+import { fmtDateTime } from '../../views/helpers';
 
 type Vars = { user: SessionUser | null };
 export const calendarRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -13,10 +18,11 @@ const s = (v: unknown) => {
   return t ? t : null;
 };
 
-export function InterviewItem({ r, showJob = true, back }: { r: InterviewRow; showJob?: boolean; back: string }) {
+export function InterviewItem({ r, showJob = true, back, fb, rec }: { r: InterviewRow; showJob?: boolean; back: string; fb?: FeedbackRow; rec?: RecordingRow }) {
   const link = r.location && safeUrl(r.location);
+  const started = new Date(r.starts_at).getTime() < Date.now();
   return (
-    <div class="iv">
+    <div class="iv" id={`fb-${r.id}`}>
       <div class="iv-when mono">{fmtWhen(r.starts_at)}<span class="faint"> · {r.duration_min} min</span></div>
       <div class="iv-body">
         <div class="iv-title">
@@ -28,6 +34,8 @@ export function InterviewItem({ r, showJob = true, back }: { r: InterviewRow; sh
           {link ? <> · <a href={link} target="_blank" rel="noopener noreferrer">link za poziv ↗</a></> : r.location ? ` · ${r.location}` : ''}
         </div>
         {r.notes && <div class="prewrap" style="font-size:.84rem;margin-top:4px">{r.notes}</div>}
+        {(started || fb) && <FeedbackBlock r={r} fb={fb} back={back} />}
+        {rec && <RecordingBlock r={r} rec={rec} />}
       </div>
       <div class="iv-actions">
         <details class="iv-edit">
@@ -39,6 +47,86 @@ export function InterviewItem({ r, showJob = true, back }: { r: InterviewRow; sh
           <button class="btn btn-line btn-sm" type="submit">Obriši</button>
         </form>
       </div>
+    </div>
+  );
+}
+
+function Stars({ n }: { n: number | null }) {
+  if (n == null) return <span class="faint">—</span>;
+  return <span class="stars" title={`${n} / 5`}>{'★★★★★'.slice(0, Math.round(n))}<span class="off">{'★★★★★'.slice(Math.round(n))}</span> <span class="mono">{n}</span></span>;
+}
+
+const WOULD: Record<string, string> = { yes: 'Da', maybe: 'Možda', no: 'Ne' };
+
+function FeedbackBlock({ r, fb, back }: { r: InterviewRow; fb?: FeedbackRow; back: string }) {
+  const avg = avgRating(fb);
+  return (
+    <details class={`fb ${fb ? 'done' : 'todo'}`}>
+      <summary>
+        {fb ? (
+          <span class="fb-sum">
+            <span>{fb.feeling ? FEELINGS[fb.feeling] : 'Ocenjeno'}</span>
+            <span>Intervjuer <Stars n={avg} /></span>
+            {fb.would_work && <span>Radio bih kod njih: <b>{WOULD[fb.would_work]}</b></span>}
+            {fb.red_flags && <span class="flag">⚑ red flags</span>}
+            <span class="faint mono" style="font-size:.68rem">izmeni</span>
+          </span>
+        ) : (
+          <span class="fb-cta">Kako je prošlo? Oceni intervju →</span>
+        )}
+      </summary>
+      <form method="post" action={`/interviews/${r.id}/feedback`} class="fb-form">
+        <input type="hidden" name="back" value={back} />
+        <div class="fb-q">Kako si se osećao tokom i posle razgovora?</div>
+        <div class="feel">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <label><input type="radio" name="feeling" value={n} checked={fb?.feeling === n} /><span>{FEELINGS[n]}</span></label>
+          ))}
+        </div>
+        <div class="field"><textarea name="feeling_text" rows={3} placeholder="Opiši svojim rečima: šta te je opustilo, šta te je izbacilo iz ritma, da li si se osećao poštovano…">{fb?.feeling_text ?? ''}</textarea></div>
+        <div class="fb-q">Kako ocenjuješ intervjuera i proces?</div>
+        <div class="ratings">
+          {RATINGS.map(([k, label]) => (
+            <div class="rate-row">
+              <span>{label}</span>
+              <span class="rate">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <label title={String(n)}><input type="radio" name={k} value={n} checked={fb?.[k] === n} /><span>{n}</span></label>
+                ))}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Red flags</label><textarea name="red_flags" rows={2} placeholder="npr. kasnili 15 min, nisu znali platu, pritisak na neplaćeni test…">{fb?.red_flags ?? ''}</textarea></div>
+          <div class="field"><label>Beleške za sledeći krug</label><textarea name="notes" rows={2}>{fb?.notes ?? ''}</textarea></div>
+        </div>
+        <div class="fb-q">Da li bi radio kod njih posle ovog razgovora?</div>
+        <div class="feel">
+          {(['yes', 'maybe', 'no'] as const).map((v) => (
+            <label><input type="radio" name="would_work" value={v} checked={fb?.would_work === v} /><span>{WOULD[v]}</span></label>
+          ))}
+        </div>
+        <div class="form-actions"><button type="submit" class="btn btn-solid btn-sm">Sačuvaj ocenu</button></div>
+      </form>
+    </details>
+  );
+}
+
+function RecordingBlock({ r, rec }: { r: InterviewRow; rec: RecordingRow }) {
+  const link = safeUrl(rec.share_url || rec.url);
+  return (
+    <div class="rec">
+      <div class="rec-head">
+        <span class="rec-badge">🎙 Fathom</span>
+        {link && <a href={link} target="_blank" rel="noopener noreferrer">snimak ↗</a>}
+        <AskClaude prompt={PROMPTS.analyze(r.id, r.company ?? '')} label={rec.analysis ? 'Analiziraj ponovo' : 'Analiziraj intervju'} />
+      </div>
+      {rec.analysis && <details class="rec-part" open><summary>Claude analiza</summary><div class="prose" style="padding:0">{raw(renderMarkdown(rec.analysis))}</div></details>}
+      {rec.summary && <details class="rec-part"><summary>Fathom rezime</summary><div class="prose" style="padding:0">{raw(renderMarkdown(rec.summary))}</div></details>}
+      {rec.action_items && <details class="rec-part"><summary>Akcioni koraci</summary><div class="prose" style="padding:0">{raw(renderMarkdown(rec.action_items))}</div></details>}
+      {rec.transcript && <details class="rec-part"><summary>Transkript</summary><div class="transcript">{rec.transcript}</div></details>}
+      {!rec.summary && !rec.transcript && <div class="faint" style="font-size:.8rem">Sadržaj snimka još nije stigao.</div>}
     </div>
   );
 }
@@ -84,11 +172,20 @@ calendarRoutes.get('/calendar', async (c) => {
   const origin = new URL(c.req.url).origin;
   const feed = `${origin}/calendar.ics?t=${token}`;
   const ok = c.req.query('ok');
+  const { fb, rec } = await extrasFor(c.env.DB, [...up, ...past].map((x) => x.id));
+  const fathom = await getConfig(c.env.DB);
+  const { results: loose } = await c.env.DB.prepare("SELECT id, title, started_at FROM recordings WHERE interview_id IS NULL ORDER BY started_at DESC LIMIT 15").all<{ id: number; title: string | null; started_at: string | null }>();
+  const fState = c.req.query('fathom');
+  const fMsg = c.req.query('msg');
+  const linkable = [...up, ...past];
   return c.html(
     <Layout title="Kalendar" active="calendar" user={user}>
       <Topbar crumb={<b>Kalendar intervjua</b>} />
       <div class="content" style="max-width:1000px">
-        {ok && <Flash>{ok === 'del' ? 'Intervju je obrisan.' : 'Intervju je sačuvan.'}</Flash>}
+        {ok && <Flash>{ok === 'del' ? 'Intervju je obrisan.' : ok === 'fb' ? 'Ocena je sačuvana.' : 'Intervju je sačuvan.'}</Flash>}
+        {fState === 'ok' && <Flash>Fathom je povezan. Snimci intervjua stižu ovde sami.</Flash>}
+        {fState === 'off' && <Flash>Fathom je isključen.</Flash>}
+        {fState === 'err' && <Flash kind="err">{fMsg ?? 'Povezivanje nije uspelo.'}</Flash>}
         <div class="page-head">
           <div>
             <h1>Kalendar</h1>
@@ -99,7 +196,7 @@ calendarRoutes.get('/calendar', async (c) => {
         <div class="panel">
           <div class="panel-head"><h3>Predstojeći</h3></div>
           {up.length === 0 && <div class="faint" style="font-size:.88rem">Nema zakazanih intervjua. Agent ih upisuje sam kad stigne poziv na mejl, a možeš i ručno ispod.</div>}
-          {up.map((r) => <InterviewItem r={r} back="/calendar" />)}
+          {up.map((r) => <InterviewItem r={r} back="/calendar" fb={fb.get(r.id)} rec={rec.get(r.id)} />)}
         </div>
 
         <details class="panel" open={up.length === 0}>
@@ -121,10 +218,48 @@ calendarRoutes.get('/calendar', async (c) => {
           <div class="faint" style="font-size:.78rem;margin-top:6px">Link je tajan: ko ga ima, vidi tvoje intervjue. Za iPhone: Settings → Calendar → Accounts → Add Subscribed Calendar.</div>
         </div>
 
+        <div class="panel" id="fathom">
+          <div class="panel-head"><h3>Fathom snimci</h3>{fathom && <span class="faint mono" style="font-size:.68rem">povezano {fmtDateTime(fathom.connectedAt)}</span>}</div>
+          {fathom ? (
+            <>
+              <div class="faint" style="font-size:.86rem;margin-bottom:10px">Kad Fathom završi snimak, Jobseeker ga sam poveže sa intervjuom po vremenu (±90 min) ili po firmi učesnika. Snimci koji nisu intervjui čuvaju se samo kao naslov i vreme, bez transkripta.</div>
+              {(loose ?? []).length > 0 && (
+                <div class="loose">
+                  <div class="k">Snimci bez intervjua</div>
+                  {(loose ?? []).map((l) => (
+                    <form method="post" action={`/recordings/${l.id}/link`} class="loose-row">
+                      <span>{l.title ?? 'Snimak'} <span class="faint mono" style="font-size:.7rem">{l.started_at ? fmtWhen(l.started_at) : ''}</span></span>
+                      <select name="interview_id"><option value="">Poveži sa intervjuom…</option>{linkable.map((x) => <option value={x.id}>{fmtWhen(x.starts_at)} · {x.company ?? x.title}</option>)}</select>
+                      <button class="btn btn-line btn-sm" type="submit">Poveži</button>
+                      <button class="btn btn-line btn-sm" type="submit" formaction={`/recordings/${l.id}/delete`}>Ukloni</button>
+                    </form>
+                  ))}
+                </div>
+              )}
+              <form method="post" action="/fathom/disconnect" style="margin-top:10px" onsubmit="return confirm('Isključiti Fathom? Webhook se briše u Fathom-u.')">
+                <button class="btn btn-line btn-sm" type="submit">Isključi Fathom</button>
+              </form>
+            </>
+          ) : (
+            <>
+              <ol class="steps-ol">
+                <li>Napravi besplatan nalog na <a href="https://fathom.video" target="_blank" rel="noopener noreferrer">fathom.video</a> i poveži Google Calendar, da Fathom ulazi u tvoje pozive.</li>
+                <li>U Fathom-u: <b>Settings → API Access → Generate API key</b>.</li>
+                <li>Nalepi ključ ovde. Jobseeker sam napravi webhook u Fathom-u.</li>
+              </ol>
+              <form method="post" action="/fathom/connect" class="ics-row">
+                <input name="api_key" type="password" required placeholder="Fathom API ključ" autocomplete="off" />
+                <button class="btn btn-solid btn-sm" type="submit">Poveži Fathom</button>
+              </form>
+              <div class="faint" style="font-size:.78rem;margin-top:6px">Ključ se čuva u tvojoj bazi i koristi samo za webhook i preuzimanje snimaka. Pre snimanja pitaj intervjuere da li se slažu.</div>
+            </>
+          )}
+        </div>
+
         {past.length > 0 && (
           <div class="panel">
             <div class="panel-head"><h3>Prošli</h3></div>
-            {past.map((r) => <InterviewItem r={r} back="/calendar" />)}
+            {past.map((r) => <InterviewItem r={r} back="/calendar" fb={fb.get(r.id)} rec={rec.get(r.id)} />)}
           </div>
         )}
       </div>

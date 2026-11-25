@@ -15,6 +15,7 @@ import { contactRoutes } from './modules/contacts/routes';
 import { statsRoutes } from './modules/stats/routes';
 import { pushRoutes } from './modules/push/routes';
 import { runNotifications } from './modules/push/service';
+import { fathomRoutes } from './modules/fathom/routes';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: SessionUser | null } }>();
 
@@ -23,8 +24,9 @@ app.use('*', loadUser);
 // One central auth gate (same reasoning as Loopforce: sub-app `.use('*')`
 // middleware leaks into the global chain once mounted). There is no public
 // API: the agent writes to D1 directly through the Cloudflare connector.
-// /calendar.ics is protected by its own secret token (Google Calendar fetches it).
-const PUBLIC_PATHS = new Set(['/login', '/setup', '/calendar.ics']);
+// /calendar.ics is protected by its own secret token (Google Calendar fetches it);
+// /fathom/webhook by Fathom's HMAC signature.
+const PUBLIC_PATHS = new Set(['/login', '/setup', '/calendar.ics', '/fathom/webhook']);
 app.use('*', async (c, next) => {
   if (PUBLIC_PATHS.has(c.req.path)) return next();
   if (!c.get('user')) return c.redirect('/login');
@@ -44,6 +46,7 @@ app.route('/', calendarRoutes);
 app.route('/', contactRoutes);
 app.route('/', statsRoutes);
 app.route('/', pushRoutes);
+app.route('/', fathomRoutes);
 
 app.notFound((c) => c.text('Nema te stranice.', 404));
 
