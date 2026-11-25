@@ -111,7 +111,8 @@ function dueTag(j: JobRow) {
 
 jobRoutes.get('/jobs', async (c) => {
   const user = c.get('user') as SessionUser;
-  const view = c.req.query('view') === 'board' ? 'board' : 'grid';
+  // Kanban (Tabla) is the default; the table is opt-in with ?view=grid.
+  const view = c.req.query('view') === 'grid' ? 'grid' : 'board';
   const q = (c.req.query('q') ?? '').trim();
   const level = isLevel(c.req.query('level')) ? (c.req.query('level') as 'head' | 'mid') : undefined;
   const sortQ = c.req.query('sort');
@@ -124,7 +125,7 @@ jobRoutes.get('/jobs', async (c) => {
 
   const link = (over: Record<string, string | string[] | undefined>) => {
     const p = new URLSearchParams();
-    const merged: Record<string, string | string[] | undefined> = { view: view === 'board' ? 'board' : undefined, q: q || undefined, level, sort: sort === 'fit' ? undefined : sort, status: statusSel, ...over };
+    const merged: Record<string, string | string[] | undefined> = { view: view === 'grid' ? 'grid' : undefined, q: q || undefined, level, sort: sort === 'fit' ? undefined : sort, status: statusSel, ...over };
     for (const [k, v] of Object.entries(merged)) {
       if (Array.isArray(v)) v.forEach((x) => p.append(k, x));
       else if (v) p.set(k, v);
@@ -151,8 +152,8 @@ jobRoutes.get('/jobs', async (c) => {
             </div>
           </div>
           <div class="view-toggle">
-            <a href={link({ view: undefined })} class={view === 'grid' ? 'active' : ''}>Tabela</a>
-            <a href={link({ view: 'board' })} class={view === 'board' ? 'active' : ''}>Tabla</a>
+            <a href={link({ view: undefined })} class={view === 'board' ? 'active' : ''}>Tabla</a>
+            <a href={link({ view: 'grid' })} class={view === 'grid' ? 'active' : ''}>Tabela</a>
           </div>
         </div>
 
