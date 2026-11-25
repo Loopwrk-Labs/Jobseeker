@@ -257,7 +257,7 @@ calendarRoutes.get('/calendar', async (c) => {
   return c.html(
     <Layout title="Kalendar" active="calendar" user={user}>
       <Topbar crumb={<b>Kalendar intervjua</b>} />
-      <div class="content" style="max-width:1000px">
+      <div class="content" style="max-width:1480px">
         {ok && <Flash>{ok === 'del' ? 'Intervju je obrisan.' : ok === 'fb' ? 'Ocena je sačuvana.' : 'Intervju je sačuvan.'}</Flash>}
         {fState === 'ok' && <Flash>Fathom je povezan. Snimci intervjua stižu ovde sami.</Flash>}
         {fState === 'off' && <Flash>Fathom je isključen.</Flash>}
@@ -269,8 +269,8 @@ calendarRoutes.get('/calendar', async (c) => {
           </div>
         </div>
 
-        <MonthGrid ym={ym} events={calEvents} today={today} />
-
+        <div class="cal-layout">
+        <div class="cal-left">
         <div class="panel">
           <div class="panel-head"><h3>Predstojeći</h3></div>
           {up.length === 0 && <div class="faint" style="font-size:.88rem">Nema zakazanih intervjua. Agent ih upisuje sam kad stigne poziv na mejl, a možeš i ručno ispod.</div>}
@@ -340,6 +340,11 @@ calendarRoutes.get('/calendar', async (c) => {
             {past.map((r) => <InterviewItem r={r} back="/calendar" fb={fb.get(r.id)} rec={rec.get(r.id)} />)}
           </div>
         )}
+        </div>
+        <div class="cal-right">
+          <MonthGrid ym={ym} events={calEvents} today={today} />
+        </div>
+        </div>
       </div>
     </Layout>,
   );
