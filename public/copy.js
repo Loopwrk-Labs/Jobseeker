@@ -9,3 +9,12 @@
     else { el.select(); document.execCommand('copy'); done(); }
   });
 })();
+(function () {
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-copy-text]');
+    if (!b) return;
+    var t = b.getAttribute('data-copy-text');
+    var done = function () { var o = b.textContent; b.textContent = 'Kopirano'; setTimeout(function () { b.textContent = o; }, 1400); };
+    if (navigator.clipboard) navigator.clipboard.writeText(t).then(done);
+  });
+})();

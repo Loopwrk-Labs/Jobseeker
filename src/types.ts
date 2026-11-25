@@ -77,6 +77,7 @@ export interface JobRow {
   salary_currency: string | null; // EUR | USD | GBP | RSD
   salary_period: string | null; // month | year | hour
   salary_kind: string | null; // gross | net
+  cv_version_id: number | null;
   created_at: string;
   updated_at: string;
 }

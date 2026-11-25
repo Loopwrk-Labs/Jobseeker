@@ -4,6 +4,7 @@ import type { Env, SessionUser, RunRow } from '../../types';
 import { Layout, Topbar } from '../../views/layout';
 import { fmtDateTime } from '../../views/helpers';
 import { renderMarkdown } from '../../lib/markdown';
+import { AskClaude, PROMPTS } from '../../lib/claude';
 
 type Vars = { user: SessionUser | null };
 export const agentRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -22,6 +23,37 @@ agentRoutes.get('/agent', async (c) => {
             <div class="sub">Radi radnim danima u 7:43 na tvom računaru. Ako računar nije upaljen, u 9:17 stiže podsetnik.</div>
           </div>
         </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Pokreni sada</h3></div>
+          <div class="run-now">
+            <div>
+              <div class="mat-title">Brza Gmail provera</div>
+              <div class="faint" style="font-size:.86rem">Samo čita mejl i ažurira statuse, intervjue i kontakte. Radi u cloudu, oko minut.</div>
+              <div style="margin-top:10px"><AskClaude prompt={PROMPTS.gmail()} label="Proveri mejl" solid /></div>
+            </div>
+            <div>
+              <div class="mat-title">Ceo agent</div>
+              <div class="faint" style="font-size:.86rem">Mejl, provera oglasa, nova pretraga i paketi. Radi na tvom MacBooku, 15–40 min.</div>
+              <form class="agent-focus" onsubmit="event.preventDefault()">
+                <input id="agentFocus" placeholder="Opciono: fokus ovog pokretanja (npr. samo junior PM u regionu)" />
+              </form>
+              <div style="margin-top:10px" id="agentBtns"><AskClaude prompt={PROMPTS.agent()} label="Pokreni agenta" solid /></div>
+            </div>
+          </div>
+          <div class="faint" style="font-size:.78rem;margin-top:12px">Dugme otvara Claude sa već upisanom porukom; ti samo pritisneš Enter. „Kopiraj“ je rezerva ako se link ne otvori.</div>
+          <script dangerouslySetInnerHTML={{ __html: `(function(){var i=document.getElementById('agentFocus'),w=document.getElementById('agentBtns');if(!i||!w)return;var a=w.querySelector('a'),b=w.querySelector('[data-copy-text]'),base=b.getAttribute('data-copy-text');i.addEventListener('input',function(){var t=i.value.trim();var p=t?base.slice(0,-1)+' sa dodatnom porukom: '+t+'.':base;b.setAttribute('data-copy-text',p);a.href='https://claude.ai/new?q='+encodeURIComponent(p);});})();` }} />
+        </div>
+
+        <div class="panel" id="pushBox">
+          <div class="panel-head"><h3>Notifikacije na telefonu</h3></div>
+          <div class="faint" style="font-size:.86rem;margin-bottom:10px">Javljam kad agent upiše intervju, odbijenicu, ponudu ili nove oglase, 1 h pre intervjua i jutarnji pregled u 8h. Na iPhone-u prvo dodaj Jobseeker na početni ekran (Safari → Share → Add to Home Screen), pa uključi ovde iz te aplikacije.</div>
+          <div class="inline-actions">
+            <button type="button" class="btn btn-solid btn-sm" id="pushBtn">Uključi notifikacije na ovom uređaju</button>
+            <button type="button" class="btn btn-line btn-sm" id="pushTest" hidden>Pošalji probnu</button>
+          </div>
+          <div class="faint" id="pushMsg" style="font-size:.82rem;margin-top:8px"></div>
+        </div>
+
         <div class="panel">
           <div class="panel-head"><h3>Šta agent radi sam</h3></div>
           <div class="prose" style="padding:0">

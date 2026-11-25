@@ -6,9 +6,13 @@ import { initials } from './helpers';
 const NAV_ITEMS = [
   { href: '/', key: 'dashboard', label: 'Pregled' },
   { href: '/jobs', key: 'jobs', label: 'Poslovi' },
-  { href: '/excluded', key: 'excluded', label: 'Izbačeni' },
+  { href: '/calendar', key: 'calendar', label: 'Kalendar' },
+  { href: '/contacts', key: 'contacts', label: 'Kontakti' },
+  { href: '/materials', key: 'materials', label: 'Materijali' },
+  { href: '/stats', key: 'stats', label: 'Statistika' },
   { href: '/calculator', key: 'calculator', label: 'Kalkulator' },
   { href: '/agent', key: 'agent', label: 'Agent' },
+  { href: '/excluded', key: 'excluded', label: 'Izbačeni' },
   { href: '/profile', key: 'profile', label: 'Profil i kriterijumi' },
 ] as const;
 
@@ -35,6 +39,33 @@ function NavIcon({ name }: { name: string }) {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
           <circle cx="12" cy="12" r="9"></circle>
           <path d="M5.6 5.6l12.8 12.8"></path>
+        </svg>
+      );
+    case 'calendar':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <rect x="3" y="5" width="18" height="16" rx="2"></rect>
+          <path d="M3 10h18M8 3v4M16 3v4M8 14h3"></path>
+        </svg>
+      );
+    case 'contacts':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="9" cy="8" r="3.5"></circle>
+          <path d="M2.5 20c.8-3.5 3.3-5.5 6.5-5.5s5.7 2 6.5 5.5M16 4.5a3.5 3.5 0 0 1 0 7M18 14.8c1.8.8 3 2.5 3.5 5.2"></path>
+        </svg>
+      );
+    case 'materials':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <path d="M6 3h9l4 4v14H6z"></path>
+          <path d="M14 3v5h5M9 12h7M9 16h7"></path>
+        </svg>
+      );
+    case 'stats':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <path d="M4 20V10M10 20V4M16 20v-7M21 20H3"></path>
         </svg>
       );
     case 'calculator':
@@ -85,6 +116,8 @@ export const Head: FC<{ title: string }> = ({ title }) => (
     <link rel="stylesheet" href="/jobseeker.css" />
     <script src="/dropdowns.js" defer></script>
     <script src="/ui.js" defer></script>
+    <script src="/copy.js" defer></script>
+    <script src="/pwa.js" defer></script>
   </head>
 );
 

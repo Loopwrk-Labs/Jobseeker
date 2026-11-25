@@ -6,6 +6,9 @@ import { Layout, Topbar } from '../views/layout';
 import { StatusPill, LevelTag, FitBadge, fmtDate, fmtDateTime, SalaryTag } from '../views/helpers';
 import { renderMarkdown } from '../lib/markdown';
 import { statusCounts, followUpsDue, listJobs } from './jobs/service';
+import { upcomingInterviews } from './calendar/service';
+import { fmtWhen } from '../lib/tz';
+import { AskClaude, PROMPTS } from '../lib/claude';
 
 type Vars = { user: SessionUser | null };
 export const dashboardRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -41,6 +44,7 @@ dashboardRoutes.get('/', async (c) => {
     listJobs(db, { status: ['review'] }),
     db.prepare('SELECT * FROM agent_runs ORDER BY started_at DESC, id DESC LIMIT 1').first<RunRow>(),
   ]);
+  const ivs = await upcomingInterviews(db, 5);
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const active = (counts.applied ?? 0) + (counts.interview ?? 0) + (counts.offer ?? 0);
 
@@ -52,6 +56,10 @@ dashboardRoutes.get('/', async (c) => {
           <div>
             <h1>Zdravo, {user.name.split(' ')[0]}</h1>
             <div class="sub">{active} prijava u toku · {(counts.ready ?? 0) + (counts.review ?? 0)} oglasa čeka tebe</div>
+          </div>
+          <div class="inline-actions">
+            <AskClaude prompt={PROMPTS.gmail()} label="Proveri mejl" />
+            <AskClaude prompt={PROMPTS.agent()} label="Pokreni agenta" solid />
           </div>
         </div>
 
@@ -84,6 +92,23 @@ dashboardRoutes.get('/', async (c) => {
             </div>
           </div>
           <div class="stack">
+            <div class="panel">
+              <div class="panel-head"><h3>Predstojeći intervjui</h3><a href="/calendar" class="faint mono" style="font-size:.7rem">kalendar →</a></div>
+              {ivs.length === 0 ? (
+                <div class="faint" style="font-size:.88rem">Nema zakazanih intervjua.</div>
+              ) : (
+                <table class="compact">
+                  <tbody>
+                    {ivs.map((r) => (
+                      <tr>
+                        <td class="mono" style="font-size:.76rem;white-space:nowrap">{fmtWhen(r.starts_at)}</td>
+                        <td><a href={r.job_id ? `/jobs/${r.job_id}?tab=intervjui` : '/calendar'} class="job-title">{r.company ?? r.title ?? 'Intervju'}</a><div class="job-co">{r.title ?? ''}{r.with_whom ? ` · ${r.with_whom}` : ''}</div></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
             <div class="panel">
               <div class="panel-head"><h3>Follow-up danas</h3></div>
               {due.length === 0 ? (

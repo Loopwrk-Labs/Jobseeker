@@ -19,10 +19,11 @@ database_name = "jobseeker-preview-db"
 database_id = "74b8b710-14d3-41e5-b4d3-f1638e0bc190"
 migrations_dir = "migrations"
 
-# Official NBS middle rates for the salary calculator, every day at 08:20
-# Belgrade winter time (07:20 UTC). Pages also refresh lazily if stale.
+# Every 15 minutes: push notifications (agent status changes, interview
+# reminders, morning digest) and the daily NBS rate refresh. One trigger only,
+# to stay well inside the Workers Free cron allowance.
 [triggers]
-crons = ["20 7 * * *"]
+crons = ["*/15 * * * *"]
 
 [assets]
 directory = "./public"

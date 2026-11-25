@@ -6,6 +6,15 @@ import { StatusPill, LevelTag, FitBadge, Flash, safeUrl, hostOf, fmtDate, fmtDat
 import { getRates } from '../fx/service';
 import { CalcPanel, CALC_FOOTNOTE, type CalcOffer } from '../calculator/view';
 import { parseRisks, type Fact } from './facts';
+import { jobInterviews } from '../calendar/service';
+import { InterviewItem, InterviewForm } from '../calendar/routes';
+import { jobContacts, ContactChip, ContactForm } from '../contacts/routes';
+import { listCvs } from '../materials/routes';
+import { AskClaude, PROMPTS } from '../../lib/claude';
+import { renderMarkdown } from '../../lib/markdown';
+import { raw } from 'hono/html';
+const fmtMoney = (n: number, cur: string) => `${new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n)} ${cur}`;
+import { fmtWhen } from '../../lib/tz';
 import { parseDateInput, stripDashes } from '../../lib/format';
 import {
   listJobs,
@@ -32,6 +41,9 @@ const OK_MSG: Record<string, string> = {
   status: 'Status je promenjen.',
   note: 'Beleška je dodata.',
   pkg: 'Paket je sačuvan.',
+  ans: 'Odgovor je sačuvan u biblioteku.',
+  iv: 'Intervju je sačuvan.',
+  ct: 'Kontakt je sačuvan.',
   fu: 'Follow-up je podešen.',
   excluded: 'Posao je izbačen. Agent ga više neće vraćati.',
   deleted: 'Posao je obrisan.',
@@ -365,6 +377,7 @@ jobRoutes.post('/jobs/new', async (c) => {
 const TABS = [
   ['pregled', 'Pregled'],
   ['prijava', 'Prijava'],
+  ['intervjui', 'Intervjui i ljudi'],
   ['plata', 'Plata'],
   ['istorija', 'Istorija'],
 ] as const;
@@ -387,11 +400,16 @@ jobRoutes.get('/jobs/:id', async (c) => {
   if (!job) return c.text('Posao ne postoji.', 404);
   const q = c.req.query('tab');
   const tab: Tab = (TABS.find(([k]) => k === q)?.[0] ?? 'pregled') as Tab;
-  const [events, pkg, fx] = await Promise.all([
+  const [events, pkg, fx, ivs, people, cvs, market] = await Promise.all([
     listEvents(c.env.DB, id),
     getPackage(c.env.DB, id),
     tab === 'plata' ? getRates(c.env.DB) : Promise.resolve(null),
+    jobInterviews(c.env.DB, id),
+    jobContacts(c.env.DB, id, job.company),
+    tab === 'prijava' ? listCvs(c.env.DB) : Promise.resolve([]),
+    tab === 'plata' ? c.env.DB.prepare('SELECT * FROM salary_research WHERE job_id = ?').bind(id).first<MarketRow>() : Promise.resolve(null),
   ]);
+  const nextIv = ivs.find((x) => new Date(x.starts_at).getTime() > Date.now() - 2 * 3600e3);
   const ok = c.req.query('ok');
   const edit = c.req.query('edit') === '1';
   const link = safeUrl(job.url);
@@ -435,6 +453,12 @@ jobRoutes.get('/jobs/:id', async (c) => {
           <JobForm job={job} action={`/jobs/${id}/edit`} />
         ) : (
           <>
+            {nextIv && (
+              <a href={`/jobs/${id}?tab=intervjui`} class="next-step iv-next">
+                <div class="k">Sledeći intervju</div>
+                <div class="v">{fmtWhen(nextIv.starts_at)} · {nextIv.title || 'Intervju'}{nextIv.with_whom ? ` · ${nextIv.with_whom}` : ''}</div>
+              </a>
+            )}
             {(job.next_step || due) && (
               <div class={`next-step ${due ? 'due' : ''}`}>
                 <div class="k">{due ? 'Follow-up je na redu' : 'Sledeći korak'}</div>
@@ -448,6 +472,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
                   {l}
                   {k === 'prijava' && hasPkg && <span class="tab-dot" title="Paket je spreman"></span>}
                   {k === 'istorija' && events.length > 0 && <span class="tab-n">{events.length}</span>}
+                  {k === 'intervjui' && ivs.length + people.length > 0 && <span class="tab-n">{ivs.length + people.length}</span>}
                 </a>
               ))}
             </nav>
@@ -491,6 +516,27 @@ jobRoutes.get('/jobs/:id', async (c) => {
 
                 {tab === 'prijava' && (
                   <div class="panel">
+                    <div class="panel-head"><h3>CV za ovaj oglas</h3><a href="/materials" class="faint mono" style="font-size:.7rem">CV verzije →</a></div>
+                    {cvs.length === 0 ? (
+                      <div class="faint" style="font-size:.88rem">Još nema CV verzija. Dodaj ih u <a href="/materials">Materijali</a>; agent će birati pravu za svaki oglas.</div>
+                    ) : (
+                      <form method="post" action={`/jobs/${id}/cv`} class="cv-pick">
+                        <select name="cv_version_id">
+                          <option value="">— nije izabrano —</option>
+                          {cvs.map((cv) => <option value={cv.id} selected={job.cv_version_id === cv.id}>{cv.name}{cv.is_default ? ' (podrazumevani)' : ''}</option>)}
+                        </select>
+                        <button class="btn btn-line btn-sm" type="submit">Sačuvaj</button>
+                        {(() => {
+                          const cur = cvs.find((x) => x.id === job.cv_version_id);
+                          return cur?.has_file ? <a class="btn btn-solid btn-sm" href={`/materials/cv/${cur.id}/file`} target="_blank">Otvori PDF ↓</a> : null;
+                        })()}
+                      </form>
+                    )}
+                  </div>
+                )}
+
+                {tab === 'prijava' && (
+                  <div class="panel">
                     <div class="panel-head">
                       <h3>Paket za prijavu</h3>
                       {pkg && <span class="faint mono" style="font-size:.68rem">izmenjen {fmtDateTime(pkg.updated_at)}</span>}
@@ -511,6 +557,44 @@ jobRoutes.get('/jobs/:id', async (c) => {
                   </div>
                 )}
 
+                {tab === 'prijava' && (
+                  <details class="panel">
+                    <summary class="panel-sum">+ Sačuvaj pitanje i odgovor u biblioteku</summary>
+                    <form method="post" action="/materials/answers" style="margin-top:12px">
+                      <input type="hidden" name="job_id" value={id} />
+                      <input type="hidden" name="company" value={job.company} />
+                      <input type="hidden" name="back" value={`/jobs/${id}?tab=prijava&ok=ans`} />
+                      <div class="field"><label>Pitanje iz forme</label><input name="question" required /></div>
+                      <div class="field"><label>Tvoj odgovor</label><textarea name="answer" rows={5} required></textarea></div>
+                      <div class="field"><label>Tagovi (zarezom)</label><input name="tags" /></div>
+                      <div class="form-actions"><a href="/materials?tab=answers" class="faint mono" style="font-size:.72rem;margin-right:auto">otvori biblioteku →</a><button class="btn btn-solid btn-sm" type="submit">Sačuvaj u biblioteku</button></div>
+                    </form>
+                  </details>
+                )}
+
+                {tab === 'intervjui' && (
+                  <>
+                    <div class="panel">
+                      <div class="panel-head"><h3>Intervjui</h3><AskClaude prompt={PROMPTS.prep(id, job.company, job.title)} label="Pripremi me za intervju" /></div>
+                      {ivs.length === 0 && <div class="faint" style="font-size:.88rem;margin-bottom:10px">Nema zakazanih intervjua. Kad agent nađe poziv u mejlu, upisaće ga ovde.</div>}
+                      {ivs.map((r) => <InterviewItem r={r} showJob={false} back={`/jobs/${id}?tab=intervjui`} />)}
+                      <details style="margin-top:10px">
+                        <summary class="panel-sum">+ Zakaži intervju</summary>
+                        <div style="margin-top:12px"><InterviewForm jobId={id} back={`/jobs/${id}?tab=intervjui`} /></div>
+                      </details>
+                    </div>
+                    <div class="panel">
+                      <div class="panel-head"><h3>Ljudi u firmi</h3><a href="/contacts" class="faint mono" style="font-size:.7rem">svi kontakti →</a></div>
+                      {people.length === 0 && <div class="faint" style="font-size:.88rem;margin-bottom:10px">Još nema kontakata za ovaj oglas.</div>}
+                      <div class="contact-list">{people.map((p) => <ContactChip r={p} />)}</div>
+                      <details style="margin-top:10px">
+                        <summary class="panel-sum">+ Dodaj kontakt</summary>
+                        <div style="margin-top:12px"><ContactForm jobId={id} company={job.company} back={`/jobs/${id}?tab=intervjui`} /></div>
+                      </details>
+                    </div>
+                  </>
+                )}
+
                 {tab === 'plata' && fx && (
                   <div class="panel">
                     <div class="panel-head">
@@ -520,6 +604,50 @@ jobRoutes.get('/jobs/:id', async (c) => {
                     {!offerOf(job) && <div class="faint" style="font-size:.86rem;margin-bottom:10px">Oglas nema navedenu platu. Upiši je u „Izmeni“ ako je saznaš, pa ćeš ovde dobiti poređenje sa svojom ponudom.</div>}
                     <CalcPanel fx={fx} offer={offerOf(job)} mode={defaultCalcMode(job)} compact />
                     <div class="faint calc-foot">{CALC_FOOTNOTE}</div>
+                  </div>
+                )}
+
+                {tab === 'plata' && (
+                  <div class="panel">
+                    <div class="panel-head">
+                      <h3>Tržište i kontraponuda</h3>
+                      <AskClaude prompt={PROMPTS.salary(id, job.company, job.title)} label={market ? 'Osveži istraživanje' : 'Istraži tržište'} />
+                    </div>
+                    {!market && <div class="faint" style="font-size:.88rem;margin-bottom:12px">Claude istraži plate za ovu ulogu i predloži kontraponudu. Rezultat se upiše ovde.</div>}
+                    {market && (
+                      <>
+                        <div class="kv kv-4" style="margin-bottom:14px">
+                          <div><div class="k">Plata iz oglasa</div><div class="v">{salaryText(job) ? <SalaryTag job={job} /> : <span class="faint">nije navedena</span>}</div></div>
+                          <div><div class="k">Tržište</div><div class="v">{market.market_min != null ? `${fmtMoney(market.market_min, market.market_currency ?? 'EUR')} – ${fmtMoney(market.market_max ?? market.market_min, market.market_currency ?? 'EUR')}` : '—'}<span class="faint"> {market.market_period === 'year' ? '/ god.' : market.market_period === 'hour' ? '/ h' : '/ mes.'}</span></div></div>
+                          <div><div class="k">Predlog kontraponude</div><div class="v"><b>{market.counter_amount != null ? fmtMoney(market.counter_amount, market.market_currency ?? 'EUR') : '—'}</b></div></div>
+                          <div><div class="k">Ažurirano</div><div class="v">{fmtDate(market.updated_at)}</div></div>
+                        </div>
+                        {market.counter_text && (
+                          <div class="field pkg-field">
+                            <div class="pkg-label"><label>Tekst za pregovore</label><button type="button" class="btn btn-line btn-sm" data-copy-text={market.counter_text}>Kopiraj</button></div>
+                            <div class="prewrap quote">{market.counter_text}</div>
+                          </div>
+                        )}
+                        {market.market_sources && <div class="prose sources" style="padding:0;font-size:.84rem">{raw(renderMarkdown(market.market_sources))}</div>}
+                      </>
+                    )}
+                    <details style="margin-top:12px">
+                      <summary class="panel-sum">Unesi ili ispravi ručno</summary>
+                      <form method="post" action={`/jobs/${id}/market`} style="margin-top:12px">
+                        <div class="form-grid four">
+                          <div class="field"><label>Tržište od</label><input name="market_min" inputmode="decimal" value={market?.market_min ?? ''} /></div>
+                          <div class="field"><label>Tržište do</label><input name="market_max" inputmode="decimal" value={market?.market_max ?? ''} /></div>
+                          <div class="field"><label>Valuta</label><select name="market_currency">{['EUR', 'USD', 'GBP', 'RSD'].map((cur) => <option selected={(market?.market_currency ?? job.salary_currency ?? 'EUR') === cur}>{cur}</option>)}</select></div>
+                          <div class="field"><label>Period</label><select name="market_period">{([['month', 'Mesečno'], ['year', 'Godišnje'], ['hour', 'Po satu']] as const).map(([v, l]) => <option value={v} selected={(market?.market_period ?? job.salary_period ?? 'month') === v}>{l}</option>)}</select></div>
+                        </div>
+                        <div class="form-grid">
+                          <div class="field"><label>Kontraponuda</label><input name="counter_amount" inputmode="decimal" value={market?.counter_amount ?? ''} /></div>
+                          <div class="field"><label>Izvori (link po redu)</label><textarea name="market_sources" rows={2}>{market?.market_sources ?? ''}</textarea></div>
+                        </div>
+                        <div class="field"><label>Tekst za pregovore</label><textarea name="counter_text" rows={4}>{market?.counter_text ?? ''}</textarea></div>
+                        <div class="form-actions"><button class="btn btn-solid btn-sm" type="submit">Sačuvaj</button></div>
+                      </form>
+                    </details>
                   </div>
                 )}
 
@@ -573,10 +701,45 @@ jobRoutes.get('/jobs/:id', async (c) => {
           </>
         )}
       </div>
-      {tab === 'prijava' && <script src="/copy.js" defer></script>}
       {!edit && tab === 'plata' && <script src="/calculator.js" defer></script>}
     </Layout>,
   );
+});
+
+interface MarketRow {
+  job_id: number;
+  market_min: number | null;
+  market_max: number | null;
+  market_currency: string | null;
+  market_period: string | null;
+  market_sources: string | null;
+  counter_amount: number | null;
+  counter_text: string | null;
+  updated_at: string;
+}
+
+jobRoutes.post('/jobs/:id/cv', async (c) => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.parseBody();
+  const cv = Number(b.cv_version_id) || null;
+  await c.env.DB.prepare(`UPDATE jobs SET cv_version_id = ?, updated_at = datetime('now') WHERE id = ?`).bind(cv, id).run();
+  return c.redirect(`/jobs/${id}?tab=prijava&ok=saved`);
+});
+
+jobRoutes.post('/jobs/:id/market', async (c) => {
+  const id = Number(c.req.param('id'));
+  const b = await c.req.parseBody();
+  const n = (v: unknown) => numOrNull(v);
+  const cur = ['EUR', 'USD', 'GBP', 'RSD'].includes(String(b.market_currency)) ? String(b.market_currency) : 'EUR';
+  const per = ['month', 'year', 'hour'].includes(String(b.market_period)) ? String(b.market_period) : 'month';
+  await c.env.DB.prepare(
+    `INSERT INTO salary_research (job_id, market_min, market_max, market_currency, market_period, market_sources, counter_amount, counter_text, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(job_id) DO UPDATE SET market_min=excluded.market_min, market_max=excluded.market_max, market_currency=excluded.market_currency,
+       market_period=excluded.market_period, market_sources=excluded.market_sources, counter_amount=excluded.counter_amount,
+       counter_text=excluded.counter_text, updated_at=datetime('now')`,
+  ).bind(id, n(b.market_min), n(b.market_max), cur, per, str(b.market_sources), n(b.counter_amount), str(b.counter_text)).run();
+  return c.redirect(`/jobs/${id}?tab=plata&ok=saved`);
 });
 
 jobRoutes.post('/jobs/:id/edit', async (c) => {
