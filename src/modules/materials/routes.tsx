@@ -3,6 +3,8 @@ import type { Env, SessionUser } from '../../types';
 import { Layout, Topbar } from '../../views/layout';
 import { Flash, fmtDate } from '../../views/helpers';
 import { AskClaude, PROMPTS } from '../../lib/claude';
+import { raw } from 'hono/html';
+import { renderMarkdown } from '../../lib/markdown';
 
 type Vars = { user: SessionUser | null };
 export const materialsRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -109,9 +111,15 @@ materialsRoutes.get('/materials', async (c) => {
               <input type="file" name="file" accept="application/pdf,.pdf" id="cvFile" />
               <div class="faint" id="cvStatus" style="font-size:.8rem;margin-top:4px">Tekst iz PDF-a se izvuče automatski u polje ispod.</div>
             </div>
-            <div class="field">
-              <label>Tekst CV-a (agent koristi ovo)</label>
-              <textarea name="content" id="cvText" rows={editing ? 14 : 6}>{editing?.content ?? ''}</textarea>
+            <div class="cv-editor">
+              <div class="field">
+                <label>CV (Markdown: # ime, ## sekcija, ### firma — datumi, - stavka)</label>
+                <textarea name="content" id="cvText" rows={18} class="mono-ta">{editing?.content ?? ''}</textarea>
+              </div>
+              <div class="field">
+                <label>Pregled</label>
+                <div id="cvPreview" class="cv-doc prose"></div>
+              </div>
             </div>
             <label class="check"><input type="checkbox" name="is_default" value="1" checked={!!editing?.is_default || (!editing && cvs.length === 0)} /> Podrazumevana verzija</label>
             <div class="form-actions">
@@ -123,7 +131,7 @@ materialsRoutes.get('/materials', async (c) => {
         {cvs.length === 0 ? (
           <div class="panel"><div class="faint">Još nema CV verzija. Dodaj PDF iznad; agent posle bira pravu verziju za svaki oglas.</div></div>
         ) : (
-          <div class="mat-grid">
+          <div class="mat-grid cvs">
             {cvs.map((cv) => (
               <div class="panel mat-card">
                 <div class="mat-top">
@@ -137,7 +145,14 @@ materialsRoutes.get('/materials', async (c) => {
                   <span>{cv.content ? `${cv.content.length.toLocaleString('sr-RS')} znakova teksta` : 'bez teksta'}</span>
                   <span>izmenjen {fmtDate(cv.updated_at)}</span>
                 </div>
+                {cv.content && (
+                  <details class="cv-view">
+                    <summary class="panel-sum">Pregled CV-a</summary>
+                    <div class="cv-doc prose">{raw(renderMarkdown(cv.content))}</div>
+                  </details>
+                )}
                 <div class="mat-actions">
+                  <AskClaude prompt={PROMPTS.cvFormat(cv.id)} label="Sredi sa Claude-om" />
                   <AskClaude prompt={PROMPTS.cv(cv.id)} label="Popuni profil iz CV-a" />
                   <a href={`/materials?edit=${cv.id}`} class="btn btn-line btn-sm">Izmeni</a>
                   <form method="post" action={`/materials/cv/${cv.id}/delete`} onsubmit="return confirm('Obrisati ovu CV verziju?')">
