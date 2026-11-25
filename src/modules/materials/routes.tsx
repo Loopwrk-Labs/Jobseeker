@@ -84,7 +84,21 @@ function tagList(t: string | null): string[] {
 materialsRoutes.get('/materials', async (c) => {
   const user = c.get('user') as SessionUser;
   const q = c.req.query('tab');
-  const tab: Tab = (TABS.find(([k]) => k === q)?.[0] ?? 'cv') as Tab;
+  const search0 = (c.req.query('q') ?? '').trim();
+  const like0 = `%${search0}%`;
+  const counts: Record<Tab, number> | null = search0
+    ? await (async () => {
+        const r = await c.env.DB.prepare(
+          `SELECT (SELECT count(*) FROM cv_versions WHERE name LIKE ?1 OR focus LIKE ?1 OR content LIKE ?1) AS cv,
+                  (SELECT count(*) FROM stories WHERE title LIKE ?1 OR tags LIKE ?1 OR situation LIKE ?1 OR task LIKE ?1 OR action LIKE ?1 OR result LIKE ?1) AS stories,
+                  (SELECT count(*) FROM answers WHERE question LIKE ?1 OR answer LIKE ?1 OR tags LIKE ?1 OR company LIKE ?1) AS answers`,
+        ).bind(like0).first<Record<Tab, number>>();
+        return r ?? { cv: 0, stories: 0, answers: 0 };
+      })()
+    : null;
+  const explicit = TABS.find(([k]) => k === q)?.[0] as Tab | undefined;
+  const tab: Tab = explicit ?? (counts ? ((TABS.find(([k]) => counts[k] > 0)?.[0] as Tab) ?? 'answers') : 'cv');
+  const has = (...vals: (string | null | undefined)[]) => vals.some((v) => (v ?? '').toLowerCase().includes(search0.toLowerCase()));
   const ok = c.req.query('ok');
   const edit = Number(c.req.query('edit') || 0);
   const search = (c.req.query('q') ?? '').trim();
@@ -93,11 +107,12 @@ materialsRoutes.get('/materials', async (c) => {
   let body: any = null;
 
   if (tab === 'cv') {
-    const cvs = await listCvs(c.env.DB);
-    const editing = cvs.find((x) => x.id === edit);
+    const allCvs = await listCvs(c.env.DB);
+    const cvs = search0 ? allCvs.filter((x) => has(x.name, x.focus, x.content)) : allCvs;
+    const editing = allCvs.find((x) => x.id === edit);
     body = (
       <>
-        <div class="panel">
+        {!search0 && <div class="panel">
           <div class="panel-head">
             <h3>{editing ? `Izmeni: ${editing.name}` : 'Nova CV verzija'}</h3>
           </div>
@@ -127,9 +142,9 @@ materialsRoutes.get('/materials', async (c) => {
               <button type="submit" class="btn btn-solid btn-sm">Sačuvaj</button>
             </div>
           </form>
-        </div>
+        </div>}
         {cvs.length === 0 ? (
-          <div class="panel"><div class="faint">Još nema CV verzija. Dodaj PDF iznad; agent posle bira pravu verziju za svaki oglas.</div></div>
+          <div class="panel"><div class="faint">{search0 ? 'Nijedna CV verzija ne odgovara pretrazi.' : 'Još nema CV verzija. Dodaj PDF iznad; agent posle bira pravu verziju za svaki oglas.'}</div></div>
         ) : (
           <div class="mat-grid cvs">
             {cvs.map((cv) => (
@@ -172,11 +187,11 @@ materialsRoutes.get('/materials', async (c) => {
     const { results } = await c.env.DB.prepare('SELECT * FROM stories ORDER BY updated_at DESC, id DESC').all<StoryRow>();
     const all = results ?? [];
     const tags = [...new Set(all.flatMap((x) => tagList(x.tags)))].sort();
-    const rows = tag ? all.filter((x) => tagList(x.tags).includes(tag)) : all;
+    const rows = (tag ? all.filter((x) => tagList(x.tags).includes(tag)) : all).filter((x) => !search0 || has(x.title, x.tags, x.situation, x.task, x.action, x.result));
     const editing = all.find((x) => x.id === edit);
     body = (
       <>
-        <div class="panel">
+        {!search0 && <div class="panel">
           <div class="panel-head">
             <h3>{editing ? 'Izmeni priču' : 'Nova STAR priča'}</h3>
             {!editing && <AskClaude prompt={PROMPTS.stories()} label="Neka Claude predloži priče" />}
@@ -199,14 +214,14 @@ materialsRoutes.get('/materials', async (c) => {
               <button type="submit" class="btn btn-solid btn-sm">Sačuvaj</button>
             </div>
           </form>
-        </div>
+        </div>}
         {tags.length > 0 && (
           <div class="chips" style="margin-bottom:12px">
             <a href="/materials?tab=stories" class="chip" style={!tag ? 'border-color:var(--ink);color:var(--ink)' : ''}>Sve ({all.length})</a>
-            {tags.map((t) => <a href={`/materials?tab=stories&tag=${encodeURIComponent(t)}`} class="chip" style={tag === t ? 'border-color:var(--ink);color:var(--ink)' : ''}>{t}</a>)}
+            {tags.map((t) => <a href={`/materials?tab=stories&tag=${encodeURIComponent(t)}${search0 ? `&q=${encodeURIComponent(search0)}` : ''}`} class="chip" style={tag === t ? 'border-color:var(--ink);color:var(--ink)' : ''}>{t}</a>)}
           </div>
         )}
-        {rows.length === 0 && <div class="panel"><div class="faint">Još nema priča. Dodaj ručno ili pusti Claude da predloži iz tvog profila.</div></div>}
+        {rows.length === 0 && <div class="panel"><div class="faint">{search0 ? 'Nijedna priča ne odgovara pretrazi.' : 'Još nema priča. Dodaj ručno ili pusti Claude da predloži iz tvog profila.'}</div></div>}
         <div class="stack">
           {rows.map((st) => {
             const text = `${st.title}\n\nSituation: ${st.situation ?? ''}\nTask: ${st.task ?? ''}\nAction: ${st.action ?? ''}\nResult: ${st.result ?? ''}`;
@@ -250,7 +265,7 @@ materialsRoutes.get('/materials', async (c) => {
     const editing = edit ? rows.find((x) => x.id === edit) ?? (await c.env.DB.prepare('SELECT * FROM answers WHERE id = ?').bind(edit).first<AnswerRow>()) : null;
     body = (
       <>
-        <div class="panel">
+        {!search0 && <div class="panel">
           <div class="panel-head">
             <h3>{editing ? 'Izmeni odgovor' : 'Novi odgovor'}</h3>
             {!editing && <AskClaude prompt={PROMPTS.answersImport()} label="Uvezi iz paketa za prijavu" />}
@@ -267,16 +282,11 @@ materialsRoutes.get('/materials', async (c) => {
               <button type="submit" class="btn btn-solid btn-sm">Sačuvaj</button>
             </div>
           </form>
-        </div>
-        <form method="get" action="/materials" class="search-row">
-          <input type="hidden" name="tab" value="answers" />
-          <input name="q" value={search} placeholder="Traži po pitanju, odgovoru, tagu ili firmi…" />
-          <button class="btn btn-line btn-sm" type="submit">Traži</button>
-        </form>
+        </div>}
         {rows.length === 0 && <div class="panel"><div class="faint">{search ? 'Ništa ne odgovara pretrazi.' : 'Biblioteka je prazna. Odgovori koje pišemo za forme se čuvaju ovde.'}</div></div>}
         <div class="stack">
           {rows.map((a) => (
-            <details class="panel answer">
+            <details class="panel answer" open={!!search0}>
               <summary>
                 <span class="q">{a.question}</span>
                 <span class="faint mono" style="font-size:.7rem">{[a.company, ...tagList(a.tags)].filter(Boolean).join(' · ')}</span>
@@ -306,9 +316,25 @@ materialsRoutes.get('/materials', async (c) => {
             <div class="sub">CV verzije, STAR priče i odgovori koje si već dao. Agent ih koristi kad pravi pakete.</div>
           </div>
         </div>
+        <form method="get" action="/materials" class="mat-search" role="search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4.5 4.5"></path></svg>
+          <input type="search" name="q" value={search0} placeholder="Pretraži CV verzije, STAR priče i odgovore…" autocomplete="off" id="matQ" />
+          {explicit && <input type="hidden" name="tab" value={explicit} />}
+          {search0 && <a href={explicit && explicit !== 'cv' ? `/materials?tab=${explicit}` : '/materials'} class="mat-clear" title="Očisti pretragu">✕</a>}
+          <button class="btn btn-solid btn-sm" type="submit">Traži</button>
+        </form>
         <nav class="tabs">
-          {TABS.map(([k, l]) => <a href={k === 'cv' ? '/materials' : `/materials?tab=${k}`} class={tab === k ? 'active' : ''}>{l}</a>)}
+          {TABS.map(([k, l]) => {
+            const href = `/materials?tab=${k}${search0 ? `&q=${encodeURIComponent(search0)}` : ''}`;
+            return (
+              <a href={k === 'cv' && !search0 ? '/materials' : href} class={tab === k ? 'active' : ''}>
+                {l}
+                {counts && <span class={`tab-n ${counts[k] ? 'hit' : ''}`}>{counts[k]}</span>}
+              </a>
+            );
+          })}
         </nav>
+        {search0 && <div class="faint" style="font-size:.84rem;margin:-6px 0 12px">Rezultati za „{search0}“. Forme za dodavanje su sakrivene dok pretražuješ.</div>}
         {body}
       </div>
     </Layout>,
