@@ -5,6 +5,7 @@ import { Layout, Topbar } from '../../views/layout';
 import { StatusPill, LevelTag, FitBadge, Flash, safeUrl, hostOf, fmtDate, fmtDateTime, todayISO, SalaryTag, RisksText, salaryText } from '../../views/helpers';
 import { getRates } from '../fx/service';
 import { CalcPanel, CALC_FOOTNOTE, type CalcOffer } from '../calculator/view';
+import { parseRisks, type Fact } from './facts';
 import { parseDateInput, stripDashes } from '../../lib/format';
 import {
   listJobs,
@@ -361,141 +362,219 @@ jobRoutes.post('/jobs/new', async (c) => {
 
 // ------------------------------------------------------------------ detail
 
+const TABS = [
+  ['pregled', 'Pregled'],
+  ['prijava', 'Prijava'],
+  ['plata', 'Plata'],
+  ['istorija', 'Istorija'],
+] as const;
+type Tab = (typeof TABS)[number][0];
+
+function FactTile({ f }: { f: Fact }) {
+  return (
+    <div class={`fact ${f.tone ? `t-${f.tone}` : ''}`}>
+      <div class="k">{f.label}</div>
+      <div class="h">{f.head}</div>
+      {f.detail && <div class="d">{f.detail}</div>}
+    </div>
+  );
+}
+
 jobRoutes.get('/jobs/:id', async (c) => {
   const user = c.get('user') as SessionUser;
   const id = Number(c.req.param('id'));
   const job = await getJob(c.env.DB, id);
   if (!job) return c.text('Posao ne postoji.', 404);
-  const [events, pkg, fx] = await Promise.all([listEvents(c.env.DB, id), getPackage(c.env.DB, id), getRates(c.env.DB)]);
+  const q = c.req.query('tab');
+  const tab: Tab = (TABS.find(([k]) => k === q)?.[0] ?? 'pregled') as Tab;
+  const [events, pkg, fx] = await Promise.all([
+    listEvents(c.env.DB, id),
+    getPackage(c.env.DB, id),
+    tab === 'plata' ? getRates(c.env.DB) : Promise.resolve(null),
+  ]);
   const ok = c.req.query('ok');
   const edit = c.req.query('edit') === '1';
   const link = safeUrl(job.url);
+  const { facts, notes, pay } = parseRisks(job.risks);
+  const salary = salaryText(job);
+  const hasPkg = !!(pkg && (pkg.cover_letter || pkg.cv_bullets || pkg.answers));
+  const tabHref = (t: Tab) => (t === 'pregled' ? `/jobs/${id}` : `/jobs/${id}?tab=${t}`);
+  const due = job.follow_up_on && job.status === 'applied' && job.follow_up_on <= todayISO();
 
   return c.html(
     <Layout title={`${job.title} · ${job.company}`} active="jobs" user={user}>
       <Topbar crumb={<><a href="/jobs">Poslovi</a> / <b>{job.company}</b></>} />
-      <div class="content">
+      <div class="content job-page">
         {ok && OK_MSG[ok] && <Flash>{OK_MSG[ok]}</Flash>}
-        <div class="lead-head">
-          <div>
+
+        <div class="job-head">
+          <div class="job-head-main">
+            <div class="job-co-line">{job.company}</div>
             <h1>{job.title}</h1>
-            <div class="co">
-              {job.company} · <LevelTag level={job.level} /> · <FitBadge fit={job.fit} />
-              {salaryText(job) && <> · <SalaryTag job={job} /></>}
+            <div class="job-meta">
+              <LevelTag level={job.level} />
+              <FitBadge fit={job.fit} />
+              {salary && <SalaryTag job={job} />}
             </div>
           </div>
           <div class="inline-actions">
-            {link && <a href={link} target="_blank" rel="noopener noreferrer" class="btn btn-line btn-sm">Otvori oglas ↗</a>}
+            {link && <a href={link} target="_blank" rel="noopener noreferrer" class="btn btn-solid btn-sm">Otvori oglas ↗</a>}
             <a href={`/jobs/${id}?edit=1`} class="btn btn-line btn-sm">Izmeni</a>
           </div>
         </div>
 
+        <form method="post" action={`/jobs/${id}/status`} class="status-track">
+          {STATUSES.map((s, i) => (
+            <button type="submit" name="status" value={s} class={job.status === s ? 'on' : STATUSES.indexOf(job.status) > i && s !== 'rejected' ? 'past' : ''} style={`--pc:${STATUS_COLOR[s]}`}>
+              <span class="d"></span>{STATUS_LABEL[s]}
+            </button>
+          ))}
+        </form>
+
         {edit ? (
           <JobForm job={job} action={`/jobs/${id}/edit`} />
         ) : (
-          <div class="layout">
-            <div class="stack">
-              <div class="panel">
-                <div class="panel-head"><h3>Status</h3></div>
-                <form method="post" action={`/jobs/${id}/status`} class="status-form">
-                  {STATUSES.map((s) => (
-                    <button type="submit" name="status" value={s} class={job.status === s ? 'on' : ''} style={`--pc:${STATUS_COLOR[s]}`}>
-                      {STATUS_LABEL[s]}
-                    </button>
-                  ))}
-                </form>
-                <div class="kv" style="margin-top:18px">
-                  <div><div class="k">Lokacija</div><div class="v">{job.location ?? '—'}</div></div>
-                  <div><div class="k">Ugovor</div><div class="v">{job.contract_type ?? '—'}</div></div>
-                  <div><div class="k">Domen</div><div class="v">{job.domain ?? '—'}</div></div>
+          <>
+            {(job.next_step || due) && (
+              <div class={`next-step ${due ? 'due' : ''}`}>
+                <div class="k">{due ? 'Follow-up je na redu' : 'Sledeći korak'}</div>
+                <div class="v">{job.next_step ?? 'Pošalji follow-up poslodavcu.'}</div>
+              </div>
+            )}
+
+            <nav class="tabs">
+              {TABS.map(([k, l]) => (
+                <a href={tabHref(k)} class={tab === k ? 'active' : ''}>
+                  {l}
+                  {k === 'prijava' && hasPkg && <span class="tab-dot" title="Paket je spreman"></span>}
+                  {k === 'istorija' && events.length > 0 && <span class="tab-n">{events.length}</span>}
+                </a>
+              ))}
+            </nav>
+
+            <div class="layout">
+              <div class="stack">
+                {tab === 'pregled' && (
+                  <>
+                    <div class="panel">
+                      <div class="panel-head"><h3>Osnovno</h3></div>
+                      <div class="kv kv-4">
+                        <div><div class="k">Plata (oglas)</div><div class="v">{salary ? <SalaryTag job={job} /> : pay ? <span class={/nije navedena|not stated/i.test(pay) ? 'faint' : 'salary-offer'}>{pay}</span> : <span class="faint">nije navedena</span>}</div></div>
+                        <div><div class="k">Lokacija</div><div class="v">{job.location ?? '—'}</div></div>
+                        <div><div class="k">Ugovor</div><div class="v">{job.contract_type ?? '—'}</div></div>
+                        <div><div class="k">Domen</div><div class="v">{job.domain ?? '—'}</div></div>
+                      </div>
+                    </div>
+
+                    {facts.length > 0 && (
+                      <div class="panel">
+                        <div class="panel-head"><h3>Uslovi rada</h3><span class="legend"><i class="t-good"></i>dobro <i class="t-warn"></i>pazi <i class="t-bad"></i>problem</span></div>
+                        <div class="facts">{facts.map((f) => <FactTile f={f} />)}</div>
+                      </div>
+                    )}
+
+                    {notes.length > 0 && (
+                      <div class="panel">
+                        <div class="panel-head"><h3>Na šta da obratiš pažnju</h3></div>
+                        <ul class="notes-list">
+                          {notes.map((n) => <li>{n.label && <b>{n.label}: </b>}{n.text}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div class="panel">
+                      <div class="panel-head"><h3>Moje beleške</h3><a href={`/jobs/${id}?edit=1`} class="faint mono" style="font-size:.7rem">izmeni →</a></div>
+                      {job.notes ? <div class="prewrap">{job.notes}</div> : <div class="faint" style="font-size:.88rem">Još nema beležaka. Agent ovo polje nikad ne menja.</div>}
+                    </div>
+                  </>
+                )}
+
+                {tab === 'prijava' && (
+                  <div class="panel">
+                    <div class="panel-head">
+                      <h3>Paket za prijavu</h3>
+                      {pkg && <span class="faint mono" style="font-size:.68rem">izmenjen {fmtDateTime(pkg.updated_at)}</span>}
+                    </div>
+                    {!hasPkg && <div class="faint" style="font-size:.88rem;margin-bottom:12px">Agent pravi paket za oglase sa ocenom 7+. Možeš i sam da ga napišeš.</div>}
+                    <form method="post" action={`/jobs/${id}/package`}>
+                      {([['cover_letter', 'cl', 'Cover letter', 14], ['cv_bullets', 'cv', 'CV bulleti za ovaj oglas', 8], ['answers', 'ans', 'Odgovori na pitanja iz prijave', 10]] as const).map(([name, elId, label, rows]) => {
+                        const val = (pkg as any)?.[name] as string | null | undefined;
+                        return (
+                          <div class="field pkg-field">
+                            <div class="pkg-label"><label for={elId}>{label}</label>{val && <button type="button" class="btn btn-line btn-sm" data-copy={elId}>Kopiraj</button>}</div>
+                            <textarea name={name} rows={val ? rows : 3} id={elId}>{val ?? ''}</textarea>
+                          </div>
+                        );
+                      })}
+                      <div class="form-actions"><button type="submit" class="btn btn-solid btn-sm">Sačuvaj paket</button></div>
+                    </form>
+                  </div>
+                )}
+
+                {tab === 'plata' && fx && (
+                  <div class="panel">
+                    <div class="panel-head">
+                      <h3>Kalkulator plate</h3>
+                      <a href="/calculator" class="faint mono" style="font-size:.7rem">veliki kalkulator →</a>
+                    </div>
+                    {!offerOf(job) && <div class="faint" style="font-size:.86rem;margin-bottom:10px">Oglas nema navedenu platu. Upiši je u „Izmeni“ ako je saznaš, pa ćeš ovde dobiti poređenje sa svojom ponudom.</div>}
+                    <CalcPanel fx={fx} offer={offerOf(job)} mode={defaultCalcMode(job)} compact />
+                    <div class="faint calc-foot">{CALC_FOOTNOTE}</div>
+                  </div>
+                )}
+
+                {tab === 'istorija' && (
+                  <div class="panel">
+                    <form method="post" action={`/jobs/${id}/note`} style="display:flex;gap:8px;margin-bottom:10px">
+                      <div class="field" style="flex:1;margin:0"><input name="body" placeholder="Dodaj belešku u istoriju…" required /></div>
+                      <button type="submit" class="btn btn-line btn-sm">Dodaj</button>
+                    </form>
+                    {events.length === 0 && <div class="faint" style="font-size:.86rem">Još nema zapisa.</div>}
+                    {events.map((e) => (
+                      <div class="ev">
+                        <div class="who">{fmtDateTime(e.created_at)}<br />{e.actor}</div>
+                        <div class="body">{e.body}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div class="stack">
+                <div class="panel">
+                  <div class="panel-head"><h3>Tok</h3></div>
+                  <div class="timeline">
+                    <div class="done"><span class="k">Pronađeno</span><span class="v">{fmtDate(job.found_at)}</span></div>
+                    <div class={job.verified_at ? 'done' : ''}><span class="k">Oglas proveren</span><span class="v">{job.verified_at ? fmtDate(job.verified_at) : '—'}</span></div>
+                    <div class={job.applied_at ? 'done' : ''}><span class="k">Prijava poslata</span><span class="v">{job.applied_at ? fmtDate(job.applied_at) : '—'}</span></div>
+                  </div>
+                  <div class="side-field" style="margin-top:14px">
+                    <div class="k">Follow-up</div>
+                    <form method="post" action={`/jobs/${id}/followup`} style="display:flex;gap:6px">
+                      <input class="date-input" name="date" placeholder="dd.mm.gggg." value={job.follow_up_on ? fmtDate(job.follow_up_on) : ''} style="flex:1;background:var(--surface-2);border:1px solid var(--hairline-strong);border-radius:3px;color:var(--ink);padding:.4em .5em" />
+                      <button type="submit" class="btn btn-line btn-sm">OK</button>
+                    </form>
+                  </div>
+                  <div class="side-field" style="margin:0"><div class="k">Izvor</div><div class="v">{SOURCE_LABEL[job.source]}{link && <> · <a href={link} target="_blank" rel="noopener noreferrer" class="host">{hostOf(job.url)} ↗</a></>}</div></div>
                 </div>
-                {job.risks && <div class="kv-note"><div class="k">Zašto / rizici</div><RisksText text={job.risks} /></div>}
-                {job.next_step && <div class="kv-note"><div class="k">Sledeći korak</div>{job.next_step}</div>}
-                {job.notes && <div class="kv-note"><div class="k">Moje beleške</div>{job.notes}</div>}
-              </div>
 
-              <div class="panel">
-                <div class="panel-head">
-                  <h3>Kalkulator plate</h3>
-                  <a href="/calculator" class="faint mono" style="font-size:.7rem">veliki kalkulator →</a>
-                </div>
-                {!offerOf(job) && <div class="faint" style="font-size:.86rem;margin-bottom:10px">Oglas nema navedenu platu. Upiši je u „Izmeni“ ako je saznaš, pa ćeš ovde dobiti poređenje sa svojom ponudom.</div>}
-                <CalcPanel fx={fx} offer={offerOf(job)} mode={defaultCalcMode(job)} compact />
-                <div class="faint calc-foot">{CALC_FOOTNOTE}</div>
-              </div>
-
-              <div class="panel">
-                <div class="panel-head">
-                  <h3>Paket za prijavu</h3>
-                  {pkg && <span class="faint mono" style="font-size:.68rem">izmenjen {fmtDateTime(pkg.updated_at)}</span>}
-                </div>
-                {!pkg && <div class="faint" style="font-size:.88rem;margin-bottom:12px">Agent pravi paket za oglase sa ocenom 7+. Možeš i sam da ga napišeš.</div>}
-                <form method="post" action={`/jobs/${id}/package`}>
-                  <div class="field">
-                    <label>Cover letter</label>
-                    <textarea name="cover_letter" rows={pkg?.cover_letter ? 14 : 4} id="cl">{pkg?.cover_letter ?? ''}</textarea>
-                    {pkg?.cover_letter && <div class="copy-row"><button type="button" class="btn btn-line btn-sm" data-copy="cl">Kopiraj</button></div>}
-                  </div>
-                  <div class="field">
-                    <label>CV bulleti za ovaj oglas</label>
-                    <textarea name="cv_bullets" rows={pkg?.cv_bullets ? 8 : 3} id="cv">{pkg?.cv_bullets ?? ''}</textarea>
-                    {pkg?.cv_bullets && <div class="copy-row"><button type="button" class="btn btn-line btn-sm" data-copy="cv">Kopiraj</button></div>}
-                  </div>
-                  <div class="field">
-                    <label>Odgovori na pitanja iz prijave</label>
-                    <textarea name="answers" rows={pkg?.answers ? 10 : 3} id="ans">{pkg?.answers ?? ''}</textarea>
-                    {pkg?.answers && <div class="copy-row"><button type="button" class="btn btn-line btn-sm" data-copy="ans">Kopiraj</button></div>}
-                  </div>
-                  <div class="form-actions"><button type="submit" class="btn btn-solid btn-sm">Sačuvaj paket</button></div>
-                </form>
-              </div>
-
-              <div class="panel">
-                <div class="panel-head"><h3>Istorija</h3></div>
-                <form method="post" action={`/jobs/${id}/note`} style="display:flex;gap:8px;margin-bottom:10px">
-                  <div class="field" style="flex:1;margin:0"><input name="body" placeholder="Dodaj belešku…" required /></div>
-                  <button type="submit" class="btn btn-line btn-sm">Dodaj</button>
-                </form>
-                {events.length === 0 && <div class="faint" style="font-size:.86rem">Još nema zapisa.</div>}
-                {events.map((e) => (
-                  <div class="ev">
-                    <div class="who">{fmtDateTime(e.created_at)}<br />{e.actor}</div>
-                    <div class="body">{e.body}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div class="stack">
-              <div class="panel">
-                <div class="side-field"><div class="k">Izvor</div><div class="v">{SOURCE_LABEL[job.source]}</div></div>
-                <div class="side-field"><div class="k">Pronađeno</div><div class="v">{fmtDate(job.found_at)}</div></div>
-                <div class="side-field"><div class="k">Poslednja provera oglasa</div><div class="v">{job.verified_at ? fmtDate(job.verified_at) : '—'}</div></div>
-                <div class="side-field"><div class="k">Prijava poslata</div><div class="v">{job.applied_at ? fmtDate(job.applied_at) : '—'}</div></div>
-                <div class="side-field">
-                  <div class="k">Follow-up</div>
-                  <form method="post" action={`/jobs/${id}/followup`} style="display:flex;gap:6px">
-                    <input class="date-input" name="date" placeholder="dd.mm.gggg." value={job.follow_up_on ? fmtDate(job.follow_up_on) : ''} style="flex:1;background:var(--surface-2);border:1px solid var(--hairline-strong);border-radius:3px;color:var(--ink);padding:.4em .5em" />
-                    <button type="submit" class="btn btn-line btn-sm">OK</button>
+                <details class="panel danger-zone">
+                  <summary>Ukloni posao</summary>
+                  <form method="post" action={`/jobs/${id}/exclude`} style="margin-top:12px">
+                    <div class="field"><input name="reason" placeholder="Razlog (npr. ne primaju Srbiju)" /></div>
+                    <button type="submit" class="btn btn-line btn-sm" style="width:100%;justify-content:center">Izbaci, agent ga više ne vraća</button>
                   </form>
-                </div>
-              </div>
-              <div class="panel">
-                <div class="panel-head"><h3>Ukloni</h3></div>
-                <form method="post" action={`/jobs/${id}/exclude`}>
-                  <div class="field"><input name="reason" placeholder="Razlog (npr. ne primaju Srbiju)" /></div>
-                  <button type="submit" class="btn btn-line btn-sm" style="width:100%;justify-content:center">Izbaci, agent ga više ne vraća</button>
-                </form>
-                <form method="post" action={`/jobs/${id}/delete`} style="margin-top:8px" onsubmit="return confirm('Obrisati ovaj posao? Agent može ponovo da ga nađe.')">
-                  <button type="submit" class="btn btn-danger btn-sm" style="width:100%;justify-content:center">Samo obriši</button>
-                </form>
+                  <form method="post" action={`/jobs/${id}/delete`} style="margin-top:8px" onsubmit="return confirm('Obrisati ovaj posao? Agent može ponovo da ga nađe.')">
+                    <button type="submit" class="btn btn-danger btn-sm" style="width:100%;justify-content:center">Samo obriši</button>
+                  </form>
+                </details>
               </div>
             </div>
-          </div>
+          </>
         )}
       </div>
-      <script src="/copy.js" defer></script>
-      {!edit && <script src="/calculator.js" defer></script>}
+      {tab === 'prijava' && <script src="/copy.js" defer></script>}
+      {!edit && tab === 'plata' && <script src="/calculator.js" defer></script>}
     </Layout>,
   );
 });
@@ -531,7 +610,7 @@ jobRoutes.post('/jobs/:id/note', async (c) => {
   const body = await c.req.parseBody();
   const text = str(body.body);
   if (text) await addEvent(c.env.DB, id, user.name, text);
-  return c.redirect(`/jobs/${id}?ok=note`);
+  return c.redirect(`/jobs/${id}?tab=istorija&ok=note`);
 });
 
 jobRoutes.post('/jobs/:id/package', async (c) => {
@@ -539,7 +618,7 @@ jobRoutes.post('/jobs/:id/package', async (c) => {
   const id = Number(c.req.param('id'));
   const body = await c.req.parseBody();
   await savePackage(c.env.DB, id, { cover_letter: str(body.cover_letter), cv_bullets: str(body.cv_bullets), answers: str(body.answers) }, user.name);
-  return c.redirect(`/jobs/${id}?ok=pkg`);
+  return c.redirect(`/jobs/${id}?tab=prijava&ok=pkg`);
 });
 
 jobRoutes.post('/jobs/:id/exclude', async (c) => {
