@@ -34,7 +34,7 @@ fathomRoutes.post('/fathom/webhook', async (c) => {
       sendPush(c.env.DB, {
         title: `🎙 Snimak intervjua stigao${iv?.company ? `: ${iv.company}` : ''}`,
         body: 'Transkript i rezime su u Jobseeker-u. Oceni intervju dok ti je sveže.',
-        url: iv?.job_id ? `/jobs/${iv.job_id}?tab=intervjui#fb-${interviewId}` : '/calendar',
+        url: iv?.job_id ? `/jobs/${iv.job_id}?tab=intervjui#fb-${interviewId}` : '/calendar?view=intervjui',
         tag: `rec-${interviewId}`,
       }).then(() => undefined),
     );
@@ -45,14 +45,14 @@ fathomRoutes.post('/fathom/webhook', async (c) => {
 fathomRoutes.post('/fathom/connect', async (c) => {
   const b = await c.req.parseBody();
   const key = s(b.api_key);
-  if (!key) return c.redirect('/calendar?fathom=missing#fathom');
+  if (!key) return c.redirect('/calendar?view=intervjui&fathom=missing#fathom');
   const r = await connect(c.env.DB, key, new URL(c.req.url).origin);
-  return c.redirect(r.ok ? '/calendar?fathom=ok#fathom' : `/calendar?fathom=err&msg=${encodeURIComponent(r.error)}#fathom`);
+  return c.redirect(r.ok ? '/calendar?view=intervjui&fathom=ok#fathom' : `/calendar?view=intervjui&fathom=err&msg=${encodeURIComponent(r.error)}#fathom`);
 });
 
 fathomRoutes.post('/fathom/disconnect', async (c) => {
   await disconnect(c.env.DB);
-  return c.redirect('/calendar?fathom=off#fathom');
+  return c.redirect('/calendar?view=intervjui&fathom=off#fathom');
 });
 
 fathomRoutes.post('/recordings/:id/link', async (c) => {
@@ -61,13 +61,13 @@ fathomRoutes.post('/recordings/:id/link', async (c) => {
   const iv = Number(b.interview_id) || null;
   await c.env.DB.prepare('UPDATE recordings SET interview_id = ? WHERE id = ?').bind(iv, id).run();
   if (iv) await fetchContent(c.env.DB, id);
-  return c.redirect(back(b.back, '/calendar#fathom'));
+  return c.redirect(back(b.back, '/calendar?view=intervjui#fathom'));
 });
 
 fathomRoutes.post('/recordings/:id/delete', async (c) => {
   const b = await c.req.parseBody();
   await c.env.DB.prepare('DELETE FROM recordings WHERE id = ?').bind(Number(c.req.param('id'))).run();
-  return c.redirect(back(b.back, '/calendar#fathom'));
+  return c.redirect(back(b.back, '/calendar?view=intervjui#fathom'));
 });
 
 // ------------------------------------------------------------------ feedback
@@ -88,6 +88,6 @@ fathomRoutes.post('/interviews/:id/feedback', async (c) => {
        r_prep=excluded.r_prep, r_clarity=excluded.r_clarity, r_time=excluded.r_time, r_comms=excluded.r_comms,
        red_flags=excluded.red_flags, would_work=excluded.would_work, notes=excluded.notes, updated_at=datetime('now')`,
   ).bind(id, rate(b.feeling), s(b.feeling_text), rate(b.r_respect), rate(b.r_prep), rate(b.r_clarity), rate(b.r_time), rate(b.r_comms), s(b.red_flags), ww, s(b.notes)).run();
-  const target = back(b.back, '/calendar');
+  const target = back(b.back, '/calendar?view=intervjui');
   return c.redirect(`${target}${target.includes('?') ? '&' : '?'}ok=fb#fb-${id}`);
 });

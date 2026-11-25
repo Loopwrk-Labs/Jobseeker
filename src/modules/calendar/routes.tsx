@@ -212,6 +212,7 @@ function MonthGrid({ ym, events, today, selected }: { ym: string; events: CalEve
         </div>
       </div>
 
+      <div class="calx-body">
       <div class="calx-grid">
         {WD.map((d, i) => <div class={`calx-wd ${i > 4 ? 'we' : ''}`}>{d}</div>)}
         {days.slice(0, weeks * 7).map((d, i) => {
@@ -225,11 +226,12 @@ function MonthGrid({ ym, events, today, selected }: { ym: string; events: CalEve
               <span class="calx-n">{Number(d.slice(8))}</span>
               {!out && (
                 <span class="calx-evs">
-                  {ivs.slice(0, 2).map((e) => <span class="calx-iv"><b>{e.time}</b> {e.label}</span>)}
-                  {ivs.length > 2 && <span class="calx-x">+{ivs.length - 2}</span>}
+                  {ivs.slice(0, 3).map((e) => <span class="calx-iv"><b>{e.time}</b> {e.label}</span>)}
+                  {rest.slice(0, Math.max(0, 4 - Math.min(ivs.length, 3))).map((e) => <span class={`calx-sm k-${e.kind}`}><i></i>{e.label}</span>)}
+                  {ev.length > Math.min(ivs.length, 3) + Math.max(0, 4 - Math.min(ivs.length, 3)) && <span class="calx-x">+{ev.length - Math.min(ivs.length, 3) - Math.max(0, 4 - Math.min(ivs.length, 3))} još</span>}
                   {ev.length > 0 && (
                     <span class="calx-dots">
-                      {ivs.map(() => <i class="k-iv m-only"></i>)}
+                      {ivs.map(() => <i class="k-iv"></i>)}
                       {rest.slice(0, 5).map((e) => <i class={`k-${e.kind}`}></i>)}
                       {rest.length > 5 && <em>+{rest.length - 5}</em>}
                     </span>
@@ -244,7 +246,7 @@ function MonthGrid({ ym, events, today, selected }: { ym: string; events: CalEve
       <div class="calx-agenda">
         <div class="calx-agenda-head">
           <span class="calx-agenda-day">{selected === today ? 'Danas · ' : ''}{selLabel}</span>
-          {selected >= today && <a href={`/calendar?m=${ym}&d=${selected}&new=${selected}#add`} class="btn btn-line btn-sm">+ Zakaži intervju</a>}
+          {selected >= today && <a href={`/calendar?view=intervjui&new=${selected}#add`} class="btn btn-line btn-sm">+ Zakaži intervju</a>}
         </div>
         {sel.length === 0 ? (
           <div class="calx-empty">Ništa za ovaj dan.</div>
@@ -261,6 +263,7 @@ function MonthGrid({ ym, events, today, selected }: { ym: string; events: CalEve
             ))}
           </ul>
         )}
+      </div>
       </div>
     </div>
   );
@@ -290,7 +293,7 @@ calendarRoutes.get('/calendar', async (c) => {
     c.env.DB.prepare('SELECT id, company, title, applied_at FROM jobs WHERE applied_at BETWEEN ? AND ?').bind(from.slice(0, 10), to.slice(0, 10)).all<{ id: number; company: string; title: string; applied_at: string }>(),
   ]);
   const calEvents: CalEvent[] = [
-    ...(ivM.results ?? []).map((r) => ({ day: dayKey(r.starts_at), kind: 'iv' as const, time: hhmm(r.starts_at), label: r.company ?? r.title ?? 'Intervju', href: r.job_id ? `/jobs/${r.job_id}?tab=intervjui#fb-${r.id}` : `#fb-${r.id}`, title: `${r.title ?? 'Intervju'}${r.company ? ` · ${r.company}` : ''}${r.with_whom ? ` · ${r.with_whom}` : ''}` })),
+    ...(ivM.results ?? []).map((r) => ({ day: dayKey(r.starts_at), kind: 'iv' as const, time: hhmm(r.starts_at), label: r.company ?? r.title ?? 'Intervju', href: r.job_id ? `/jobs/${r.job_id}?tab=intervjui#fb-${r.id}` : `/calendar?view=intervjui#fb-${r.id}`, title: `${r.title ?? 'Intervju'}${r.company ? ` · ${r.company}` : ''}${r.with_whom ? ` · ${r.with_whom}` : ''}` })),
     ...(fuM.results ?? []).map((r) => ({ day: r.follow_up_on.slice(0, 10), kind: 'fu' as const, label: r.company, href: `/jobs/${r.id}`, title: `Follow-up: ${r.company} · ${r.title}` })),
     ...(apM.results ?? []).map((r) => ({ day: r.applied_at.slice(0, 10), kind: 'applied' as const, label: r.company, href: `/jobs/${r.id}`, title: `Prijava poslata: ${r.company} · ${r.title}` })),
   ];
@@ -303,6 +306,7 @@ calendarRoutes.get('/calendar', async (c) => {
   const fState = c.req.query('fathom');
   const fMsg = c.req.query('msg');
   const linkable = [...up, ...past];
+  const view: 'kalendar' | 'intervjui' = c.req.query('view') === 'intervjui' || !!newDay || !!fState || !!ok ? 'intervjui' : 'kalendar';
   return c.html(
     <Layout title="Kalendar" active="calendar" user={user}>
       <Topbar crumb={<b>Kalendar intervjua</b>} />
@@ -318,19 +322,35 @@ calendarRoutes.get('/calendar', async (c) => {
           </div>
         </div>
 
-        <div class="cal-layout">
-        <div class="cal-left">
+        <nav class="tabs">
+          <a href="/calendar" class={view === 'kalendar' ? 'active' : ''}>Kalendar</a>
+          <a href="/calendar?view=intervjui" class={view === 'intervjui' ? 'active' : ''}>Intervjui i podešavanja{up.length > 0 && <span class="tab-n">{up.length}</span>}</a>
+        </nav>
+
+        {view === 'kalendar' ? (
+          <MonthGrid ym={ym} events={calEvents} today={today} selected={selected} />
+        ) : (
+          <div class="cal-layout">
+            <div class="cal-left">
         <div class="panel">
           <div class="panel-head"><h3>Predstojeći</h3></div>
           {up.length === 0 && <div class="faint" style="font-size:.88rem">Nema zakazanih intervjua. Agent ih upisuje sam kad stigne poziv na mejl, a možeš i ručno ispod.</div>}
-          {up.map((r) => <InterviewItem r={r} back="/calendar" fb={fb.get(r.id)} rec={rec.get(r.id)} />)}
+          {up.map((r) => <InterviewItem r={r} back="/calendar?view=intervjui" fb={fb.get(r.id)} rec={rec.get(r.id)} />)}
         </div>
 
         <details class="panel" id="add" open={up.length === 0 || !!newDay}>
           <summary class="panel-sum">+ Dodaj intervju{newDay ? ` za ${newDay.slice(8)}.${newDay.slice(5, 7)}.` : ''}</summary>
-          <div style="margin-top:12px"><InterviewForm jobs={jobsRes.results ?? []} back="/calendar" defaultStart={newDay ? `${newDay}T10:00` : undefined} /></div>
+          <div style="margin-top:12px"><InterviewForm jobs={jobsRes.results ?? []} back="/calendar?view=intervjui" defaultStart={newDay ? `${newDay}T10:00` : undefined} /></div>
         </details>
 
+        {past.length > 0 && (
+          <div class="panel">
+            <div class="panel-head"><h3>Prošli</h3></div>
+            {past.map((r) => <InterviewItem r={r} back="/calendar?view=intervjui" fb={fb.get(r.id)} rec={rec.get(r.id)} />)}
+          </div>
+        )}
+            </div>
+            <div class="cal-left">
         <div class="panel">
           <div class="panel-head"><h3>Google Calendar</h3></div>
           <ol class="steps-ol">
@@ -383,17 +403,9 @@ calendarRoutes.get('/calendar', async (c) => {
           )}
         </div>
 
-        {past.length > 0 && (
-          <div class="panel">
-            <div class="panel-head"><h3>Prošli</h3></div>
-            {past.map((r) => <InterviewItem r={r} back="/calendar" fb={fb.get(r.id)} rec={rec.get(r.id)} />)}
+            </div>
           </div>
         )}
-        </div>
-        <div class="cal-right">
-          <MonthGrid ym={ym} events={calEvents} today={today} selected={selected} />
-        </div>
-        </div>
       </div>
     </Layout>,
   );
@@ -404,7 +416,7 @@ async function saveInterview(c: any, id: number | null) {
   const back = s(b.back);
   const startsAt = localToUtc(String(b.starts_at ?? ''));
   const jobId = Number(b.job_id) || null;
-  const target = back && back.startsWith('/') ? back : '/calendar';
+  const target = back && back.startsWith('/') ? back : '/calendar?view=intervjui';
   if (!startsAt) return c.redirect(target);
   const dur = Math.max(5, Math.min(600, Number(b.duration_min) || 45));
   const vals = [jobId, s(b.title), startsAt, dur, s(b.location), s(b.with_whom), s(b.notes)];
@@ -425,7 +437,7 @@ calendarRoutes.post('/interviews/:id/delete', async (c) => {
   const b = await c.req.parseBody();
   await c.env.DB.prepare('DELETE FROM interviews WHERE id = ?').bind(Number(c.req.param('id'))).run();
   const back = s(b.back);
-  return c.redirect(back && back.startsWith('/') ? back : '/calendar?ok=del');
+  return c.redirect(back && back.startsWith('/') ? back : '/calendar?view=intervjui&ok=del');
 });
 
 /** Public, token-protected iCalendar feed for Google/Apple Calendar. */

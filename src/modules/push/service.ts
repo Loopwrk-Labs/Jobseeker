@@ -115,7 +115,7 @@ export async function runNotifications(db: D1Database): Promise<void> {
     notes.push({
       title: `⏰ Intervju uskoro${iv.company ? `: ${iv.company}` : ''}`,
       body: `${fmtWhen(iv.starts_at)} · ${iv.title ?? 'Intervju'}${iv.location ? `\n${iv.location}` : ''}`,
-      url: iv.job_id ? `/jobs/${iv.job_id}?tab=intervjui` : '/calendar',
+      url: iv.job_id ? `/jobs/${iv.job_id}?tab=intervjui` : '/calendar?view=intervjui',
       tag: `iv-${iv.id}`,
     });
     await db.prepare("UPDATE interviews SET reminded_at = datetime('now') WHERE id = ?").bind(iv.id).run();
@@ -136,7 +136,7 @@ export async function runNotifications(db: D1Database): Promise<void> {
     notes.push({
       title: `Kako je prošlo${iv.company ? ` sa ${iv.company}` : ''}?`,
       body: 'Zapiši kako si se osećao i oceni intervjuera dok ti je sveže. Traje minut.',
-      url: iv.job_id ? `/jobs/${iv.job_id}?tab=intervjui#fb-${iv.id}` : `/calendar#fb-${iv.id}`,
+      url: iv.job_id ? `/jobs/${iv.job_id}?tab=intervjui#fb-${iv.id}` : `/calendar?view=intervjui#fb-${iv.id}`,
       tag: `fb-${iv.id}`,
     });
     await db.prepare("UPDATE interviews SET feedback_asked_at = datetime('now') WHERE id = ?").bind(iv.id).run();
