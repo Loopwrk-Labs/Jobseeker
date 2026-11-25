@@ -3,12 +3,12 @@ import { raw } from 'hono/html';
 import type { Env, SessionUser, RunRow, JobRow } from '../types';
 import { STATUSES, STATUS_LABEL, STATUS_COLOR } from '../types';
 import { Layout, Topbar } from '../views/layout';
-import { StatusPill, LevelTag, FitBadge, fmtDate, fmtDateTime, SalaryTag } from '../views/helpers';
+import { StatusPill, LevelTag, FitBadge, fmtDate, fmtDateTime, SalaryTag, Flash } from '../views/helpers';
 import { renderMarkdown } from '../lib/markdown';
 import { statusCounts, followUpsDue, listJobs } from './jobs/service';
 import { upcomingInterviews } from './calendar/service';
 import { fmtWhen } from '../lib/tz';
-import { AskClaude, PROMPTS } from '../lib/claude';
+import { RunButtons } from './agent/fire';
 
 type Vars = { user: SessionUser | null };
 export const dashboardRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -45,6 +45,9 @@ dashboardRoutes.get('/', async (c) => {
     db.prepare('SELECT * FROM agent_runs ORDER BY started_at DESC, id DESC LIMIT 1').first<RunRow>(),
   ]);
   const ivs = await upcomingInterviews(db, 5);
+  const f = c.req.query('fired');
+  const firedMsg = f === 'ok' ? (c.req.query('w') === 'gmail' ? 'Brza Gmail provera je pokrenuta. Rezime stiže kao notifikacija.' : 'Agent je pokrenut na tvom MacBooku.') : null;
+  const firedErr = f === 'err' ? c.req.query('msg') ?? 'Pokretanje nije uspelo.' : null;
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const active = (counts.applied ?? 0) + (counts.interview ?? 0) + (counts.offer ?? 0);
 
@@ -52,14 +55,15 @@ dashboardRoutes.get('/', async (c) => {
     <Layout title="Pregled" active="dashboard" user={user}>
       <Topbar />
       <div class="content">
+        {firedMsg && <Flash>{firedMsg}</Flash>}
+        {firedErr && <Flash kind="err">{firedErr}</Flash>}
         <div class="page-head">
           <div>
             <h1>Zdravo, {user.name.split(' ')[0]}</h1>
             <div class="sub">{active} prijava u toku · {(counts.ready ?? 0) + (counts.review ?? 0)} oglasa čeka tebe</div>
           </div>
           <div class="inline-actions">
-            <AskClaude prompt={PROMPTS.gmail()} label="Proveri mejl" />
-            <AskClaude prompt={PROMPTS.agent()} label="Pokreni agenta" solid />
+            <RunButtons back="/" />
           </div>
         </div>
 

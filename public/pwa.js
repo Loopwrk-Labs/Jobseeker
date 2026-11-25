@@ -70,3 +70,12 @@
 
   state();
 })();
+// Busy state for one-click buttons (avoid double runs).
+document.addEventListener('submit', function (e) {
+  var b = e.target.querySelector && e.target.querySelector('button[data-busy]');
+  if (!b) return;
+  if (b.dataset.sent) { e.preventDefault(); return; }
+  b.dataset.sent = '1';
+  b.textContent = b.getAttribute('data-busy');
+  b.setAttribute('aria-busy', 'true');
+});
