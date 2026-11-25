@@ -131,7 +131,7 @@ function RecordingBlock({ r, rec }: { r: InterviewRow; rec: RecordingRow }) {
   );
 }
 
-export function InterviewForm({ r, jobId, jobs, back }: { r?: InterviewRow; jobId?: number; jobs?: { id: number; company: string; title: string }[]; back: string }) {
+export function InterviewForm({ r, jobId, jobs, back, defaultStart }: { r?: InterviewRow; jobId?: number; jobs?: { id: number; company: string; title: string }[]; back: string; defaultStart?: string }) {
   return (
     <form method="post" action={r ? `/interviews/${r.id}` : '/interviews'} class="iv-form">
       <input type="hidden" name="back" value={back} />
@@ -148,7 +148,7 @@ export function InterviewForm({ r, jobId, jobs, back }: { r?: InterviewRow; jobI
       )}
       <div class="form-grid four">
         <div class="field"><label>Naziv</label><input name="title" placeholder="HR screen, tehnički, finalni…" value={r?.title ?? ''} /></div>
-        <div class="field"><label>Početak (Beograd) *</label><input type="datetime-local" name="starts_at" required value={utcToLocal(r?.starts_at)} /></div>
+        <div class="field"><label>Početak (Beograd) *</label><input type="datetime-local" name="starts_at" required value={r ? utcToLocal(r.starts_at) : defaultStart ?? ''} /></div>
         <div class="field"><label>Trajanje, min</label><input name="duration_min" inputmode="numeric" value={r?.duration_min ?? 45} /></div>
         <div class="field"><label>Sa kim</label><input name="with_whom" value={r?.with_whom ?? ''} /></div>
       </div>
@@ -158,6 +158,64 @@ export function InterviewForm({ r, jobId, jobs, back }: { r?: InterviewRow; jobI
       </div>
       <div class="form-actions"><button type="submit" class="btn btn-solid btn-sm">Sačuvaj intervju</button></div>
     </form>
+  );
+}
+
+// ------------------------------------------------------------------ month grid
+
+const TZ = 'Europe/Belgrade';
+const dayKey = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(iso));
+const hhmm = (iso: string) => new Intl.DateTimeFormat('sr-Latn-RS', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
+const MONTHS = ['januar', 'februar', 'mart', 'april', 'maj', 'jun', 'jul', 'avgust', 'septembar', 'oktobar', 'novembar', 'decembar'];
+const WD = ['pon', 'uto', 'sre', 'čet', 'pet', 'sub', 'ned'];
+
+interface CalEvent { day: string; kind: 'iv' | 'fu' | 'applied'; time?: string; label: string; href: string; title: string }
+
+function MonthGrid({ ym, events, today }: { ym: string; events: CalEvent[]; today: string }) {
+  const [y, m] = ym.split('-').map(Number);
+  const first = new Date(Date.UTC(y, m - 1, 1));
+  const offset = (first.getUTCDay() + 6) % 7; // Monday first
+  const start = new Date(Date.UTC(y, m - 1, 1 - offset));
+  const days: string[] = [];
+  for (let i = 0; i < 42; i++) days.push(new Date(start.getTime() + i * 86400000).toISOString().slice(0, 10));
+  const weeks = days[35].slice(0, 7) === ym ? 6 : 5;
+  const byDay = new Map<string, CalEvent[]>();
+  for (const e of events) byDay.set(e.day, [...(byDay.get(e.day) ?? []), e]);
+  const prev = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
+  const next = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);
+  return (
+    <div class="panel cal-panel">
+      <div class="cal-head">
+        <h3 class="cal-title">{MONTHS[m - 1]} {y}</h3>
+        <div class="cal-nav">
+          <a href={`/calendar?m=${prev}`} class="btn btn-line btn-sm" aria-label="Prethodni mesec">←</a>
+          <a href="/calendar" class="btn btn-line btn-sm">Danas</a>
+          <a href={`/calendar?m=${next}`} class="btn btn-line btn-sm" aria-label="Sledeći mesec">→</a>
+        </div>
+        <div class="cal-legend"><span><i class="k-iv"></i>intervju</span><span><i class="k-fu"></i>follow-up</span><span><i class="k-applied"></i>prijava poslata</span></div>
+      </div>
+      <div class="cal-grid">
+        {WD.map((d) => <div class="cal-wd">{d}</div>)}
+        {days.slice(0, weeks * 7).map((d) => {
+          const ev = (byDay.get(d) ?? []).sort((a, b) => (a.kind === 'iv' ? 0 : 1) - (b.kind === 'iv' ? 0 : 1) || (a.time ?? '').localeCompare(b.time ?? ''));
+          const out = d.slice(0, 7) !== ym;
+          return (
+            <div class={`cal-day ${out ? 'out' : ''} ${d === today ? 'today' : ''} ${d < today ? 'past' : ''}`}>
+              <div class="cal-dn">
+                <span>{Number(d.slice(8))}</span>
+                {!out && d >= today && <a href={`/calendar?m=${ym}&new=${d}#add`} class="cal-add" title="Zakaži intervju ovog dana">+</a>}
+              </div>
+              {ev.slice(0, 4).map((e) => (
+                <a href={e.href} class={`cal-ev k-${e.kind}`} title={e.title}>
+                  {e.time && <b>{e.time}</b>} {e.label}
+                </a>
+              ))}
+              {ev.length > 4 && <div class="cal-more">+{ev.length - 4} još</div>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -172,6 +230,24 @@ calendarRoutes.get('/calendar', async (c) => {
   const origin = new URL(c.req.url).origin;
   const feed = `${origin}/calendar.ics?t=${token}`;
   const ok = c.req.query('ok');
+
+  // Month grid data
+  const today = dayKey(new Date().toISOString());
+  const ym = /^\d{4}-\d{2}$/.test(c.req.query('m') ?? '') ? c.req.query('m')! : today.slice(0, 7);
+  const [gy, gm] = ym.split('-').map(Number);
+  const from = new Date(Date.UTC(gy, gm - 1, -7)).toISOString();
+  const to = new Date(Date.UTC(gy, gm, 8)).toISOString();
+  const [ivM, fuM, apM] = await Promise.all([
+    c.env.DB.prepare('SELECT i.id, i.job_id, i.title, i.starts_at, i.with_whom, j.company FROM interviews i LEFT JOIN jobs j ON j.id = i.job_id WHERE i.starts_at BETWEEN ? AND ?').bind(from, to).all<{ id: number; job_id: number | null; title: string | null; starts_at: string; with_whom: string | null; company: string | null }>(),
+    c.env.DB.prepare("SELECT id, company, title, follow_up_on FROM jobs WHERE status = 'applied' AND follow_up_on BETWEEN ? AND ?").bind(from.slice(0, 10), to.slice(0, 10)).all<{ id: number; company: string; title: string; follow_up_on: string }>(),
+    c.env.DB.prepare('SELECT id, company, title, applied_at FROM jobs WHERE applied_at BETWEEN ? AND ?').bind(from.slice(0, 10), to.slice(0, 10)).all<{ id: number; company: string; title: string; applied_at: string }>(),
+  ]);
+  const calEvents: CalEvent[] = [
+    ...(ivM.results ?? []).map((r) => ({ day: dayKey(r.starts_at), kind: 'iv' as const, time: hhmm(r.starts_at), label: r.company ?? r.title ?? 'Intervju', href: r.job_id ? `/jobs/${r.job_id}?tab=intervjui#fb-${r.id}` : `#fb-${r.id}`, title: `${r.title ?? 'Intervju'}${r.company ? ` · ${r.company}` : ''}${r.with_whom ? ` · ${r.with_whom}` : ''}` })),
+    ...(fuM.results ?? []).map((r) => ({ day: r.follow_up_on.slice(0, 10), kind: 'fu' as const, label: r.company, href: `/jobs/${r.id}`, title: `Follow-up: ${r.company} · ${r.title}` })),
+    ...(apM.results ?? []).map((r) => ({ day: r.applied_at.slice(0, 10), kind: 'applied' as const, label: r.company, href: `/jobs/${r.id}`, title: `Prijava poslata: ${r.company} · ${r.title}` })),
+  ];
+  const newDay = /^\d{4}-\d{2}-\d{2}$/.test(c.req.query('new') ?? '') ? c.req.query('new')! : null;
   const { fb, rec } = await extrasFor(c.env.DB, [...up, ...past].map((x) => x.id));
   const fathom = await getConfig(c.env.DB);
   const { results: loose } = await c.env.DB.prepare("SELECT id, title, started_at FROM recordings WHERE interview_id IS NULL ORDER BY started_at DESC LIMIT 15").all<{ id: number; title: string | null; started_at: string | null }>();
@@ -193,15 +269,17 @@ calendarRoutes.get('/calendar', async (c) => {
           </div>
         </div>
 
+        <MonthGrid ym={ym} events={calEvents} today={today} />
+
         <div class="panel">
           <div class="panel-head"><h3>Predstojeći</h3></div>
           {up.length === 0 && <div class="faint" style="font-size:.88rem">Nema zakazanih intervjua. Agent ih upisuje sam kad stigne poziv na mejl, a možeš i ručno ispod.</div>}
           {up.map((r) => <InterviewItem r={r} back="/calendar" fb={fb.get(r.id)} rec={rec.get(r.id)} />)}
         </div>
 
-        <details class="panel" open={up.length === 0}>
-          <summary class="panel-sum">+ Dodaj intervju</summary>
-          <div style="margin-top:12px"><InterviewForm jobs={jobsRes.results ?? []} back="/calendar" /></div>
+        <details class="panel" id="add" open={up.length === 0 || !!newDay}>
+          <summary class="panel-sum">+ Dodaj intervju{newDay ? ` za ${newDay.slice(8)}.${newDay.slice(5, 7)}.` : ''}</summary>
+          <div style="margin-top:12px"><InterviewForm jobs={jobsRes.results ?? []} back="/calendar" defaultStart={newDay ? `${newDay}T10:00` : undefined} /></div>
         </details>
 
         <div class="panel">
