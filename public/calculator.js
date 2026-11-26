@@ -12,8 +12,22 @@
     erContrib: 0.1515,      // poslodavac: PIO 10% + zdravstvo 5,15%
     minBase: 51297,         // najniža mesečna osnovica doprinosa 2026
     maxBase: 732820,        // najviša mesečna osnovica doprinosa 2026
-    pausalLimit: 6000000    // godišnji limit prometa za paušalce, RSD
+    pausalLimit: 6000000,   // godišnji limit prometa za paušalce, RSD
+    // Godišnji porez na dohodak: prag = 3 prosečne godišnje zarade. Poslednji objavljeni (za 2025): 5.439.096 RSD.
+    annualThreshold: 5439096,
+    avgAnnual: 1813032
   };
+
+  // Gruba procena godišnjeg poreza na dohodak za zaposlene (ZPDG čl. 87–88):
+  // osnovica = godišnji neto − prag; lični odbitak 40% prosečne godišnje zarade (najviše 50% osnovice);
+  // 10% do 6 prosečnih godišnjih zarada, 15% iznad. Bez olakšice za mlađe od 40 i izdržavane članove.
+  function annualTax(monthlyNet) {
+    var base = monthlyNet * 12 - P.annualThreshold;
+    if (base <= 0) return 0;
+    var taxable = base - Math.min(0.4 * P.avgAnnual, 0.5 * base);
+    var band = 6 * P.avgAnnual - P.annualThreshold;
+    return Math.min(taxable, band) * 0.10 + Math.max(0, taxable - band) * 0.15;
+  }
 
   function clampBase(g) { return Math.min(Math.max(g, P.minBase), P.maxBase); }
 
@@ -59,7 +73,7 @@
     return { gross: monthlyRsd, fees: fees, pausal: pausal, accountant: accountant, net: net, annualTurnover: annual, overLimit: annual > P.pausalLimit, limitUsage: annual / P.pausalLimit };
   }
 
-  var CALC = { P: P, fromGross1: fromGross1, fromNet: fromNet, fromGross2: fromGross2, toMonthly: toMonthly, contractor: contractor };
+  var CALC = { P: P, annualTax: annualTax, parseNum: parseNum, fromGross1: fromGross1, fromNet: fromNet, fromGross2: fromGross2, toMonthly: toMonthly, contractor: contractor };
   if (typeof module !== "undefined" && module.exports) { module.exports = CALC; return; }
   root.JobseekerCalc = CALC;
 
@@ -84,7 +98,26 @@
   }
   function save(st) { try { localStorage.setItem(LS_KEY, JSON.stringify(st)); } catch (e) { /* radi i bez storage-a */ } }
 
-  function num(el) { var v = parseFloat(String(el && el.value || "").replace(/\s/g, "").replace(",", ".")); return isFinite(v) ? v : 0; }
+  // Prihvata "4000", "4.000", "4 000", "4,000", "3.500,50", "1,5": tačka/zarez ispred tačno 3 cifre je hiljadarka.
+  function parseNum(raw) {
+    var t = String(raw || "").replace(/[\s\u00a0']/g, "");
+    if (!t) return 0;
+    var lastDot = t.lastIndexOf("."), lastComma = t.lastIndexOf(",");
+    if (lastDot >= 0 && lastComma >= 0) {
+      var dec = lastDot > lastComma ? "." : ",";
+      t = t.split(dec === "." ? "," : ".").join("").replace(dec, ".");
+    } else {
+      var sep = lastDot >= 0 ? "." : lastComma >= 0 ? "," : "";
+      if (sep) {
+        var parts = t.split(sep);
+        var thousands = parts.length > 2 || (parts[1].length === 3 && parts[0].length <= 3 && parts[0] !== "0");
+        t = thousands ? parts.join("") : parts.join(".");
+      }
+    }
+    var v = parseFloat(t);
+    return isFinite(v) ? v : 0;
+  }
+  function num(el) { return parseNum(el && el.value); }
   function fmt(v, cur) {
     var digits = Math.abs(v) < 100 && cur !== "RSD" ? 2 : 0;
     return new Intl.NumberFormat("sr-RS", { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(v) + " " + cur;
@@ -200,14 +233,18 @@
 
       if (mode === "emp") {
         if (mine.res.minBaseApplied) notes.push("Bruto je ispod najniže osnovice (" + fmt(P.minBase, "RSD") + "), pa se doprinosi računaju na najnižu osnovicu. Za skraćeno radno vreme ovo nije tačno.");
-        if (mine.res.maxBaseApplied) notes.push("Bruto je iznad najviše osnovice (" + fmt(P.maxBase, "RSD") + "), pa doprinosi dalje ne rastu. Godišnji porez na dohodak nije uračunat.");
+        if (mine.res.maxBaseApplied) notes.push("Bruto je iznad najviše osnovice (" + fmt(P.maxBase, "RSD") + "), pa doprinosi dalje ne rastu.");
+        var at = annualTax(mine.res.net);
+        if (at > 0) notes.push("Godišnji porez na dohodak (plaćaš sam, do 15. maja): procena ≈ " + fmt(at, "RSD") + " godišnje, tj. ≈ " + fmt(at / 12, "RSD") + " mesečno manje od neta u tabeli. Bez olakšice za mlađe od 40 i za izdržavane članove; prag je za 2025.");
       } else {
         notes.push("Godišnji promet: " + fmt(mine.res.annualTurnover, "RSD") + " (" + Math.round(mine.res.limitUsage * 100) + "% limita od " + fmt(P.pausalLimit, "RSD") + ").");
-        if (mine.res.overLimit) notes.push("Iznad limita za paušal: prelazak na knjige, ličnu zaradu ili d.o.o. menja računicu.");
+        if (mine.res.overLimit) notes.unshift("!Ovaj iznos je iznad limita za paušal (" + fmt(P.pausalLimit, "RSD") + " godišnje), pa red „Ostaje ti“ ne važi: preko limita prelaziš na knjige, ličnu zaradu ili d.o.o. i porez je drugačiji. Paušal radi do ≈ " + fmt(P.pausalLimit / 12 / ro, other) + " mesečno.");
       }
 
       $("calcOut").innerHTML = html.join("");
-      $("calcNotes").innerHTML = notes.map(function (n) { return "<li>" + esc(n) + "</li>"; }).join("");
+      $("calcNotes").innerHTML = notes.map(function (n) { return n.charAt(0) === "!" ? '<li class="calc-warn">' + esc(n.slice(1)) + "</li>" : "<li>" + esc(n) + "</li>"; }).join("");
+      var strong = $("calcOut").querySelector(".calc-strong");
+      if (strong) strong.classList.toggle("calc-void", mode === "contr" && !!mine.res.overLimit);
     }
 
     $("amount").addEventListener("input", function () { manualAmount = true; });

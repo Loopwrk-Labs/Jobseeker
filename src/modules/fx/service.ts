@@ -16,6 +16,9 @@ export interface FxRates {
 export const FX_FALLBACK: FxRates = { date: null, fetched_at: '', rates: { EUR: 117.2, USD: 101, GBP: 134 } };
 
 const KEY = 'fx_rates';
+// Plausible RSD ranges; anything outside is a parsing error, never stored.
+const SANE: Record<FxCode, [number, number]> = { EUR: [90, 160], USD: [70, 160], GBP: [100, 200] };
+const saneRates = (fx: FxRates | null) => !!fx && FX_CODES.every((c) => { const v = fx.rates?.[c]; return typeof v === 'number' && v >= SANE[c][0] && v <= SANE[c][1]; });
 const ATTEMPT_KEY = 'fx_rates_attempt';
 
 function belgradeToday(): string {
@@ -28,9 +31,12 @@ async function fetchOne(code: FxCode): Promise<{ middle: number; date: string }>
     signal: AbortSignal.timeout(4000),
   });
   if (!res.ok) throw new Error(`${code}: HTTP ${res.status}`);
-  const j = (await res.json()) as { exchange_middle?: number; number?: number; date?: string };
-  const middle = Number(j.exchange_middle) / (Number(j.number) || 1);
-  if (!isFinite(middle) || middle <= 0) throw new Error(`${code}: bad rate`);
+  // exchange_middle is RSD for 1 unit of EUR/USD/GBP. Do NOT divide by `number`:
+  // that field is the NBS rate-list serial number (e.g. 224), not a unit count.
+  const j = (await res.json()) as { exchange_middle?: number | string; date?: string };
+  const middle = Number(j.exchange_middle);
+  const [lo, hi] = SANE[code];
+  if (!isFinite(middle) || middle < lo || middle > hi) throw new Error(`${code}: implausible rate ${middle}`);
   return { middle, date: String(j.date ?? '') };
 }
 
@@ -71,6 +77,7 @@ export async function getRates(db: D1Database): Promise<FxRates> {
   } catch {
     fx = null;
   }
+  if (!saneRates(fx)) fx = null; // e.g. rates stored by the old divide-by-`number` bug
   const fetchedDay = fx?.fetched_at
     ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Belgrade' }).format(new Date(fx.fetched_at))
     : null;
