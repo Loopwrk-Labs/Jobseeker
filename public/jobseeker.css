@@ -411,3 +411,16 @@ a.next-step{display:block;color:inherit;text-decoration:none}
 .rej-msg .prewrap{margin-top:8px;padding:10px 12px;background:var(--surface-2);border-radius:8px}
 .rej-form textarea{width:100%;font:inherit;font-size:.9rem;line-height:1.5}
 .rej-edit{margin-top:14px}
+
+/* Calculator: business forms */
+.calc-sub{font-family:'IBM Plex Mono',monospace;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);margin:14px 0 8px}
+.calc-hint{font-size:.78rem;margin:-4px 0 4px}
+.calc-check{display:flex;align-items:center;gap:8px;font-size:.86rem;margin:4px 0 0;cursor:pointer}
+.cmp{margin-top:14px}
+.cmp-h{font-size:.84rem;font-weight:600;margin-bottom:6px}
+.cmp .table-wrap{border:1px solid var(--hairline);border-radius:var(--radius-s);overflow-x:auto}
+.cmp-pick{all:unset;cursor:pointer;text-decoration:underline;text-decoration-color:var(--hairline-strong);text-underline-offset:3px}
+.cmp tr.cmp-on td{background:var(--surface-2)}
+.cmp tr.cmp-on .cmp-pick{font-weight:700;text-decoration:none}
+.cmp-tag{font-family:'IBM Plex Mono',monospace;font-size:.62rem;padding:1px 6px;border-radius:20px;border:1px solid var(--hairline-strong);color:var(--ink-dim);margin-left:4px}
+.cmp tr.cmp-best .cmp-tag{color:var(--green);border-color:color-mix(in srgb,var(--green) 50%,transparent)}

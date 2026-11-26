@@ -17,7 +17,7 @@ calculatorRoutes.get('/calculator', async (c) => {
         <div class="page-head">
           <div>
             <h1>Kalkulator zarade</h1>
-            <div class="sub">Plata u Srbiji (bruto↔neto), contractor/paušal i godišnje ili po satu → mesečno. Parametri za 2026.</div>
+            <div class="sub">Plata u Srbiji, paušal, preduzetnik na knjigama, DOO i frilenser bez firme, sa troškovima firme i načinom isplate (banka, Wise, Payoneer, PayPal). Parametri za 2026.</div>
           </div>
         </div>
         <div class="panel">

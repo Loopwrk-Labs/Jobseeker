@@ -109,9 +109,10 @@ function readSalary(body: Record<string, unknown>) {
 }
 
 /** Contractor-style postings default the calculator to the paušal view. */
-function defaultCalcMode(j: JobRow): 'emp' | 'contr' {
+function defaultCalcMode(j: JobRow): 'emp' | 'pausal' | 'frilenser' {
   const t = `${j.contract_type ?? ''} ${j.risks ?? ''}`.toLowerCase();
-  return /contractor|contract|b2b|freelanc|upwork|hourly|ugovor o delu|paušal|eor/.test(t) && !/ugovor o radu|permanent/.test(t) ? 'contr' : 'emp';
+  if (/upwork|freelanc|contra\b|braintrust/.test(t)) return 'frilenser';
+  return /contractor|contract|b2b|hourly|ugovor o delu|paušal/.test(t) && !/ugovor o radu|permanent/.test(t) ? 'pausal' : 'emp';
 }
 
 function offerOf(j: JobRow): CalcOffer | null {
