@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env, SessionUser } from '../../types';
 import { connect, disconnect, getConfig, verify, ingest, fetchContent } from './service';
 import { sendPush } from '../push/service';
+import { safeBack } from '../../lib/safe';
 
 type Vars = { user: SessionUser | null };
 export const fathomRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -12,7 +13,7 @@ const s = (v: unknown) => {
 };
 const back = (v: unknown, fallback: string) => {
   const b = s(v);
-  return b && b.startsWith('/') ? b : fallback;
+  return safeBack(b, fallback);
 };
 
 /** Public endpoint: Fathom calls it when a recording is ready. Signature-checked. */

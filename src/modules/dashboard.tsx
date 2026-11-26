@@ -16,7 +16,7 @@ export const dashboardRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
 function JobList({ jobs, empty }: { jobs: JobRow[]; empty: string }) {
   if (!jobs.length) return <div class="faint" style="font-size:.88rem">{empty}</div>;
   return (
-    <table class="compact">
+    <table class="compact dash-t">
       <tbody>
         {jobs.map((j) => (
           <tr>
@@ -101,7 +101,7 @@ dashboardRoutes.get('/', async (c) => {
               {ivs.length === 0 ? (
                 <div class="faint" style="font-size:.88rem">Nema zakazanih intervjua.</div>
               ) : (
-                <table class="compact">
+                <table class="compact dash-t">
                   <tbody>
                     {ivs.map((r) => (
                       <tr>
@@ -114,11 +114,11 @@ dashboardRoutes.get('/', async (c) => {
               )}
             </div>
             <div class="panel">
-              <div class="panel-head"><h3>Follow-up danas</h3></div>
+              <div class="panel-head"><h3>Follow-up na redu</h3></div>
               {due.length === 0 ? (
                 <div class="faint" style="font-size:.88rem">Nijedan follow-up ne kasni.</div>
               ) : (
-                <table class="compact">
+                <table class="compact dash-t">
                   <tbody>
                     {due.map((j) => (
                       <tr>

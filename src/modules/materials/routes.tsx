@@ -5,6 +5,7 @@ import { Flash, fmtDate } from '../../views/helpers';
 import { AskClaude, PROMPTS } from '../../lib/claude';
 import { raw } from 'hono/html';
 import { renderMarkdown } from '../../lib/markdown';
+import { safeBack } from '../../lib/safe';
 
 type Vars = { user: SessionUser | null };
 export const materialsRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -416,7 +417,7 @@ async function saveAnswer(c: any, id: number | null) {
     const jobId = Number(b.job_id) || null;
     await c.env.DB.prepare('INSERT INTO answers (question, answer, tags, company, job_id) VALUES (?, ?, ?, ?, ?)').bind(q, a, s(b.tags), s(b.company), jobId).run();
   }
-  return c.redirect(back && back.startsWith('/') ? back : '/materials?tab=answers&ok=ans');
+  return c.redirect(safeBack(back, '/materials?tab=answers&ok=ans'));
 }
 materialsRoutes.post('/materials/answers', (c) => saveAnswer(c, null));
 materialsRoutes.post('/materials/answers/:id', (c) => saveAnswer(c, Number(c.req.param('id'))));

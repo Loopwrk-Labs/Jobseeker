@@ -18,6 +18,7 @@ import { raw } from 'hono/html';
 const fmtMoney = (n: number, cur: string) => `${new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n)} ${cur}`;
 import { fmtWhen } from '../../lib/tz';
 import { parseDateInput, stripDashes } from '../../lib/format';
+import { notFoundPage } from '../../views/notfound';
 import {
   listJobs,
   getJob,
@@ -499,7 +500,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
   const user = c.get('user') as SessionUser;
   const id = Number(c.req.param('id'));
   const job = await getJob(c.env.DB, id);
-  if (!job) return c.text('Posao ne postoji.', 404);
+  if (!job) return notFoundPage(c, 'Ovaj posao ne postoji ili je uklonjen.', '/jobs', 'Na poslove');
   const q = c.req.query('tab');
   const tab: Tab = (TABS.find(([k]) => k === q)?.[0] ?? 'pregled') as Tab;
   const [events, pkg, fx, ivs, people, cvs, market] = await Promise.all([
@@ -612,7 +613,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
 
                     <div class="panel">
                       <div class="panel-head"><h3>Moje beleške</h3><a href={`/jobs/${id}?edit=1`} class="faint mono" style="font-size:.7rem">izmeni →</a></div>
-                      {job.notes ? <div class="prewrap">{job.notes}</div> : <div class="faint" style="font-size:.88rem">Još nema beležaka. Agent ovo polje nikad ne menja.</div>}
+                      {job.notes ? <div class="prose" style="padding:0">{raw(renderMarkdown(job.notes, { breaks: true }))}</div> : <div class="faint" style="font-size:.88rem">Još nema beležaka. Agent ovo polje nikad ne menja.</div>}
                     </div>
                   </>
                 )}

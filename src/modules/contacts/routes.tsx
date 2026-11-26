@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import type { Env, SessionUser } from '../../types';
 import { Layout, Topbar } from '../../views/layout';
 import { Flash, safeUrl, fmtDate, fmtDateTime } from '../../views/helpers';
+import { safeBack } from '../../lib/safe';
+import { notFoundPage } from '../../views/notfound';
 
 type Vars = { user: SessionUser | null };
 export const contactRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -147,7 +149,7 @@ contactRoutes.get('/contacts/:id', async (c) => {
   const user = c.get('user') as SessionUser;
   const id = Number(c.req.param('id'));
   const r = await c.env.DB.prepare('SELECT c.*, j.title AS job_title FROM contacts c LEFT JOIN jobs j ON j.id = c.job_id WHERE c.id = ?').bind(id).first<ContactRow>();
-  if (!r) return c.text('Kontakt ne postoji.', 404);
+  if (!r) return notFoundPage(c, 'Ovaj kontakt ne postoji.', '/contacts', 'Na kontakte');
   const [{ results }, jobsRes] = await Promise.all([
     c.env.DB.prepare('SELECT * FROM contact_events WHERE contact_id = ? ORDER BY at DESC, id DESC').bind(id).all<ContactEventRow>(),
     c.env.DB.prepare("SELECT id, company, title FROM jobs ORDER BY company").all<{ id: number; company: string; title: string }>(),
@@ -218,7 +220,7 @@ async function saveContact(c: any, id: number | null) {
   const b = await c.req.parseBody();
   const name = s(b.name);
   const back = s(b.back);
-  const target = back && back.startsWith('/') ? back : '/contacts';
+  const target = safeBack(back, '/contacts');
   if (!name) return c.redirect(target);
   const li = s(b.linkedin);
   const vals = [name, s(b.role), s(b.company), s(b.email), s(b.phone), li && safeUrl(li) ? li : null, Number(b.job_id) || null, s(b.notes)];

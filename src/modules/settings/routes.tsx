@@ -11,6 +11,10 @@ settingsRoutes.post('/me/theme', async (c) => {
   if (['auto', 'light', 'dark'].includes(theme)) {
     await c.env.DB.prepare('UPDATE users SET theme = ? WHERE id = ?').bind(theme, user.id).run();
   }
-  const back = c.req.header('Referer');
-  return c.redirect(back && new URL(back).host === new URL(c.req.url).host ? back : '/');
+  let target = '/';
+  try {
+    const ref = new URL(c.req.header('Referer') ?? '');
+    if (ref.host === new URL(c.req.url).host) target = ref.pathname + ref.search + ref.hash;
+  } catch { /* missing or malformed Referer */ }
+  return c.redirect(target);
 });

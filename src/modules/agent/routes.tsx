@@ -6,6 +6,7 @@ import { fmtDateTime } from '../../views/helpers';
 import { renderMarkdown } from '../../lib/markdown';
 import { TASKS } from '../../lib/claude';
 import { getFire, saveFire, fire, validUrl, type Which } from './fire';
+import { safeBack } from '../../lib/safe';
 
 type Vars = { user: SessionUser | null };
 export const agentRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -132,7 +133,7 @@ agentRoutes.get('/agent', async (c) => {
 const isWhich = (w: string): w is Which => w === 'gmail' || w === 'agent';
 const backOf = (v: unknown, d: string) => {
   const b = String(v ?? '');
-  return b.startsWith('/') ? b : d;
+  return safeBack(b, d);
 };
 const withQ = (b: string, q: string) => {
   const [path, hash] = b.split('#');

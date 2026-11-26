@@ -13,14 +13,14 @@ function inline(s: string): string {
     .replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, '$1<em>$2</em>');
 }
 
-export function renderMarkdown(src: string): string {
+export function renderMarkdown(src: string, opts: { breaks?: boolean } = {}): string {
   const lines = src.replace(/\r\n/g, '\n').split('\n');
   const out: string[] = [];
   let list: 'ul' | 'ol' | null = null;
   let para: string[] = [];
 
   const flushPara = () => {
-    if (para.length) out.push(`<p>${inline(para.join(' '))}</p>`);
+    if (para.length) out.push(`<p>${para.map(inline).join(opts.breaks ? '<br>' : ' ')}</p>`);
     para = [];
   };
   const closeList = () => {

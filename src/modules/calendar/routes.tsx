@@ -10,6 +10,7 @@ import { renderMarkdown } from '../../lib/markdown';
 import { AskClaude, PROMPTS } from '../../lib/claude';
 import { getConfig } from '../fathom/service';
 import { fmtDateTime } from '../../views/helpers';
+import { safeBack } from '../../lib/safe';
 
 type Vars = { user: SessionUser | null };
 export const calendarRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -433,7 +434,7 @@ async function saveInterview(c: any, id: number | null) {
   const back = s(b.back);
   const startsAt = localToUtc(String(b.starts_at ?? ''));
   const jobId = Number(b.job_id) || null;
-  const target = back && back.startsWith('/') ? back : '/calendar?view=intervjui';
+  const target = safeBack(back, '/calendar?view=intervjui');
   if (!startsAt) return c.redirect(target);
   const dur = Math.max(5, Math.min(600, Number(b.duration_min) || 45));
   const vals = [jobId, s(b.title), startsAt, dur, s(b.location), s(b.with_whom), s(b.notes)];
@@ -454,7 +455,7 @@ calendarRoutes.post('/interviews/:id/delete', async (c) => {
   const b = await c.req.parseBody();
   await c.env.DB.prepare('DELETE FROM interviews WHERE id = ?').bind(Number(c.req.param('id'))).run();
   const back = s(b.back);
-  return c.redirect(back && back.startsWith('/') ? back : '/calendar?view=intervjui&ok=del');
+  return c.redirect(safeBack(back, '/calendar?view=intervjui&ok=del'));
 });
 
 /** Public, token-protected iCalendar feed for Google/Apple Calendar. */
