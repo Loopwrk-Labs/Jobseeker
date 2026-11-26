@@ -365,3 +365,18 @@ a.next-step{display:block;color:inherit;text-decoration:none}
 .import-row{margin-bottom:4px}
 .applied-box{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 12px;margin-bottom:14px;border-radius:8px;background:color-mix(in srgb,var(--stage-contacted) 10%,transparent);border:1px solid color-mix(in srgb,var(--stage-contacted) 35%,transparent)}
 .applied-box input[type=date]{background:var(--surface);border:1px solid var(--hairline-strong);border-radius:3px;color:var(--ink);padding:.35em .5em;font:inherit;font-size:.86rem}
+.fact{position:relative;padding-right:44px}
+.fact-ic{position:absolute;top:10px;right:10px;width:26px;height:26px;padding:5px;border-radius:7px;background:var(--surface);color:var(--ink-dim)}
+.fact.t-good .fact-ic{color:var(--green);background:color-mix(in srgb,var(--green) 14%,transparent)}
+.fact.t-warn .fact-ic{color:var(--stage-proposal);background:color-mix(in srgb,var(--stage-proposal) 14%,transparent)}
+.fact.t-bad .fact-ic{color:var(--red);background:color-mix(in srgb,var(--red) 14%,transparent)}
+.hours-x{margin-top:8px;padding-top:8px;border-top:1px dashed var(--hairline-strong);display:flex;flex-direction:column;gap:4px;font-size:.78rem}
+.hx-local{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.hx-local span{font-family:'IBM Plex Mono',monospace;font-size:.62rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint)}
+.hx-local b{font-family:'IBM Plex Mono',monospace;font-size:.9rem;color:var(--ink)}
+.hx-local em{font-style:normal;color:var(--ink-faint);font-size:.72rem}
+.hx-row{color:var(--ink-dim)}
+.hx-mode{align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-size:.64rem;padding:2px 8px;border-radius:10px;background:var(--surface)}
+.hx-mode.m-full{color:var(--stage-proposal);background:color-mix(in srgb,var(--stage-proposal) 14%,transparent)}
+.hx-mode.m-overlap{color:var(--stage-contacted);background:color-mix(in srgb,var(--stage-contacted) 14%,transparent)}
+.hx-mode.m-flex{color:var(--green);background:color-mix(in srgb,var(--green) 14%,transparent)}

@@ -6,7 +6,7 @@ import { Layout, Topbar } from '../../views/layout';
 import { StatusPill, LevelTag, FitBadge, Flash, safeUrl, hostOf, fmtDate, fmtDateTime, todayISO, SalaryTag, RisksText, salaryText } from '../../views/helpers';
 import { getRates } from '../fx/service';
 import { CalcPanel, CALC_FOOTNOTE, type CalcOffer } from '../calculator/view';
-import { parseRisks, type Fact } from './facts';
+import { parseRisks, parseHours, type Fact } from './facts';
 import { importFromUrl } from './import';
 import { jobInterviews, extrasFor } from '../calendar/service';
 import { InterviewItem, InterviewForm } from '../calendar/routes';
@@ -44,6 +44,8 @@ const OK_MSG: Record<string, string> = {
   note: 'Beleška je dodata.',
   pkg: 'Paket je sačuvan.',
   ans: 'Odgovor je sačuvan u biblioteku.',
+  imported: 'Oglas je uvezen. Fit, nivo, domen i rizike dopunjuje agent pri sledećem pokretanju.',
+  exists: 'Ovaj oglas je već u bazi.',
   iv: 'Intervju je sačuvan.',
   ct: 'Kontakt je sačuvan.',
   fb: 'Ocena intervjua je sačuvana.',
@@ -352,41 +354,72 @@ function JobForm({ job, action, error, isNew = false }: { job?: Partial<JobRow>;
   );
 }
 
-jobRoutes.get('/jobs/new', async (c) => {
-  const user = c.get('user') as SessionUser;
-  const raw = (c.req.query('url') ?? '').trim();
-  const url = raw ? safeUrl(raw) : null;
-  let job: Partial<JobRow> | undefined;
-  let info: string | null = null;
-  let err: string | null = null;
-  if (raw && !url) err = 'Link nije ispravan (treba da počinje sa https://).';
-  if (url) {
-    try {
-      const r = await importFromUrl(url);
-      job = { ...r.job, applied_at: c.req.query('applied') === '1' ? todayISO() : undefined };
-      info = `Popunjeno iz oglasa${r.posted ? ` (objavljen ${fmtDate(r.posted)})` : ''}. Proveri polja pa sačuvaj.${r.note ? ` ${r.note}` : ''}`;
-    } catch (e) {
-      job = { url, applied_at: c.req.query('applied') === '1' ? todayISO() : undefined };
-      err = `Nisam uspeo da pročitam stranicu (${e instanceof Error ? e.message : 'greška'}). Neki sajtovi traže prijavu; popuni ručno, link je sačuvan.`;
-    }
-  }
-  return c.html(
+function NewJobPage({ user, job, raw = '', applied = true, info, err }: { user: SessionUser; job?: Partial<JobRow>; raw?: string; applied?: boolean; info?: string | null; err?: string | null }) {
+  return (
     <Layout title="Novi posao" active="jobs" user={user}>
       <Topbar crumb={<><a href="/jobs">Poslovi</a> / <b>Novi</b></>} />
       <div class="content" style="max-width:900px">
-        <div class="page-head"><div><h1>Dodaj posao</h1><div class="sub">Nalepi link oglasa i ja popunim šta mogu; sve možeš da ispraviš pre čuvanja.</div></div></div>
-        <form method="get" action="/jobs/new" class="mat-search import-row">
+        <div class="page-head"><div><h1>Dodaj posao</h1><div class="sub">Nalepi link oglasa i klikni „Uvezi“: oglas se odmah sačuva, a agent pri sledećem pokretanju dopuni fit, nivo, domen i rizike.</div></div></div>
+        <form method="post" action="/jobs/import" class="mat-search import-row">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path></svg>
-          <input type="url" name="url" value={raw} placeholder="https://djinni.co/jobs/… ili bilo koji link oglasa" required />
-          <label class="check" style="margin:0;white-space:nowrap"><input type="checkbox" name="applied" value="1" checked={c.req.query('applied') === '1' || !raw} /> već sam aplicirao</label>
-          <button class="btn btn-solid btn-sm" type="submit">Uvezi</button>
+          <input type="url" name="url" value={raw} placeholder="https://djinni.co/jobs/… ili bilo koji link oglasa" required autofocus />
+          <label class="check" style="margin:0;white-space:nowrap"><input type="checkbox" name="applied" value="1" checked={applied} /> već sam aplicirao</label>
+          <button class="btn btn-solid btn-sm" type="submit" data-busy="Uvozim…">Uvezi</button>
         </form>
         {info && <Flash>{info}</Flash>}
         {err && <Flash kind="err">{err}</Flash>}
-        <JobForm action="/jobs/new" job={job} isNew />
+        <details class="panel" open={!!(job || err)}>
+          <summary class="panel-sum">{job ? 'Proveri i dopuni pa sačuvaj' : 'Ili unesi ručno'}</summary>
+          <div style="margin-top:12px"><JobForm action="/jobs/new" job={job} isNew /></div>
+        </details>
       </div>
-    </Layout>,
+    </Layout>
   );
+}
+
+jobRoutes.get('/jobs/new', (c) => c.html(<NewJobPage user={c.get('user') as SessionUser} />));
+
+/** One step: read the posting, save it, mark it applied if asked. The agent fills the rest later. */
+jobRoutes.post('/jobs/import', async (c) => {
+  const user = c.get('user') as SessionUser;
+  const body = await c.req.parseBody();
+  const raw = String(body.url ?? '').trim();
+  const applied = !!body.applied;
+  const url = safeUrl(raw);
+  if (!url) return c.html(<NewJobPage user={user} raw={raw} applied={applied} err="Link nije ispravan (treba da počinje sa https://)." />, 400);
+
+  const dup = await c.env.DB.prepare('SELECT id FROM jobs WHERE url = ? LIMIT 1').bind(url).first<{ id: number }>();
+  if (dup) return c.redirect(`/jobs/${dup.id}?ok=exists`);
+
+  let job: Partial<JobRow> = { url };
+  let note: string | null = null;
+  try {
+    const r = await importFromUrl(url);
+    job = r.job;
+    note = r.note;
+  } catch (e) {
+    note = `Nisam uspeo da pročitam stranicu (${e instanceof Error ? e.message : 'greška'}).`;
+  }
+  if (!job.company || !job.title) {
+    return c.html(<NewJobPage user={user} raw={raw} applied={applied} job={{ ...job, applied_at: applied ? todayISO() : null }} err={`${note ?? 'Fale podaci.'} Upiši firmu i poziciju, ostalo dopunjuje agent.`} />);
+  }
+  const id = await createJob(
+    c.env.DB,
+    {
+      company: job.company, title: job.title, level: 'mid', fit: null, location: job.location ?? null, contract_type: job.contract_type ?? null,
+      domain: null, url, risks: null, next_step: 'Agent dopunjuje fit, nivo, domen i rizike pri sledećem pokretanju.', notes: job.notes ?? null,
+      salary_min: job.salary_min ?? null, salary_max: job.salary_max ?? null, salary_currency: job.salary_currency ?? null, salary_period: job.salary_period ?? null, salary_kind: job.salary_kind ?? null,
+    } as any,
+    'manual',
+    user.name,
+  );
+  if (applied) {
+    const d = todayISO();
+    const fu = new Date(Date.parse(d + 'T12:00:00Z') + FOLLOW_UP_DAYS * 86400000).toISOString().slice(0, 10);
+    await c.env.DB.prepare(`UPDATE jobs SET status = 'applied', applied_at = ?, follow_up_on = ?, updated_at = datetime('now') WHERE id = ?`).bind(d, fu, id).run();
+    await c.env.DB.prepare('INSERT INTO job_events (job_id, actor, body) VALUES (?, ?, ?)').bind(id, user.name, `Uvezeno iz linka kao poslata prijava (${fmtDate(d)}). Follow-up ${fmtDate(fu)}.`).run();
+  }
+  return c.redirect(`/jobs/${id}?ok=imported`);
 });
 
 jobRoutes.post('/jobs/new', async (c) => {
@@ -423,12 +456,41 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
+const FACT_ICON: Record<string, string> = {
+  // 24×24 line icons, stroke = currentColor
+  group: '<path d="M4 7h16v12H4z"/><path d="M9 7V5h6v2"/><path d="M4 12h16"/>',
+  apply: '<path d="M6 3h9l3 3v15H6z"/><path d="M9 12l2 2 4-4"/>',
+  auto: '<path d="M13 3L5 13h6l-1 8 8-10h-6z"/>',
+  excl: '<circle cx="9" cy="9" r="5"/><circle cx="15" cy="15" r="5"/>',
+  meet: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
+  hours: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/>',
+  mon: '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.5"/>',
+  ai: '<path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18.5 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
+};
+
 function FactTile({ f }: { f: Fact }) {
+  const ic = FACT_ICON[f.key];
   return (
     <div class={`fact ${f.tone ? `t-${f.tone}` : ''}`}>
+      {ic && raw(`<svg class="fact-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ic}</svg>`)}
       <div class="k">{f.label}</div>
       <div class="h">{f.head}</div>
       {f.detail && <div class="d">{f.detail}</div>}
+      {f.key === 'hours' && <HoursExtra text={`${f.head} ${f.detail ?? ''}`} />}
+    </div>
+  );
+}
+
+function HoursExtra({ text }: { text: string }) {
+  const h = parseHours(text);
+  if (!h.zone && !h.mode) return null;
+  const diff = h.diffH == null ? null : h.diffH === 0 ? 'Isto vreme kao Beograd' : `Beograd je ${Math.abs(h.diffH)} h ${h.diffH > 0 ? 'ispred' : 'iza'}${h.zone ? ` (${h.zone})` : ''}`;
+  const mode = h.mode === 'full' ? 'Pun poklop sa radnim vremenom' : h.mode === 'overlap' ? `Samo preklapanje${h.overlapH ? `, min. ${h.overlapH} h` : ''}` : h.mode === 'flex' ? 'Fleksibilno, bez fiksnih sati' : null;
+  return (
+    <div class="hours-x">
+      {h.local && <div class="hx-local"><span>Kod tebe</span><b>{h.local}</b>{h.span && h.span !== h.local && <em>({h.span} {h.zone ?? ''})</em>}</div>}
+      {diff && <div class="hx-row">{diff}</div>}
+      {mode && <div class={`hx-mode m-${h.mode}`}>{mode}</div>}
     </div>
   );
 }
