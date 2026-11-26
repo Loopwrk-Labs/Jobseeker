@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { FOLLOW_UP_DAYS } from '../../types';
 import type { Env, SessionUser, JobRow, JobStatus } from '../../types';
 import { STATUSES, STATUS_LABEL, STATUS_COLOR, LEVEL_LABEL, SOURCE_LABEL, isStatus, isLevel } from '../../types';
 import { Layout, Topbar } from '../../views/layout';
@@ -6,6 +7,7 @@ import { StatusPill, LevelTag, FitBadge, Flash, safeUrl, hostOf, fmtDate, fmtDat
 import { getRates } from '../fx/service';
 import { CalcPanel, CALC_FOOTNOTE, type CalcOffer } from '../calculator/view';
 import { parseRisks, type Fact } from './facts';
+import { importFromUrl } from './import';
 import { jobInterviews, extrasFor } from '../calendar/service';
 import { InterviewItem, InterviewForm } from '../calendar/routes';
 import { jobContacts, ContactChip, ContactForm } from '../contacts/routes';
@@ -287,10 +289,16 @@ jobRoutes.get('/jobs', async (c) => {
 
 // ------------------------------------------------------------------ form
 
-function JobForm({ job, action, error }: { job?: Partial<JobRow>; action: string; error?: string }) {
+function JobForm({ job, action, error, isNew = false }: { job?: Partial<JobRow>; action: string; error?: string; isNew?: boolean }) {
   return (
     <form method="post" action={action} class="panel">
       {error && <Flash kind="err">{error}</Flash>}
+      {isNew && (
+        <div class="applied-box">
+          <label class="check"><input type="checkbox" name="already_applied" value="1" checked={!!job?.applied_at} /> <b>Već sam aplicirao</b> <span class="faint">(status „Poslato“, follow-up za 10 dana)</span></label>
+          <div class="field" style="margin:0"><input type="date" name="applied_on" value={job?.applied_at ?? todayISO()} /></div>
+        </div>
+      )}
       <div class="form-grid">
         <div class="field"><label>Firma *</label><input name="company" required value={job?.company ?? ''} /></div>
         <div class="field"><label>Pozicija *</label><input name="title" required value={job?.title ?? ''} /></div>
@@ -344,14 +352,38 @@ function JobForm({ job, action, error }: { job?: Partial<JobRow>; action: string
   );
 }
 
-jobRoutes.get('/jobs/new', (c) => {
+jobRoutes.get('/jobs/new', async (c) => {
   const user = c.get('user') as SessionUser;
+  const raw = (c.req.query('url') ?? '').trim();
+  const url = raw ? safeUrl(raw) : null;
+  let job: Partial<JobRow> | undefined;
+  let info: string | null = null;
+  let err: string | null = null;
+  if (raw && !url) err = 'Link nije ispravan (treba da počinje sa https://).';
+  if (url) {
+    try {
+      const r = await importFromUrl(url);
+      job = { ...r.job, applied_at: c.req.query('applied') === '1' ? todayISO() : undefined };
+      info = `Popunjeno iz oglasa${r.posted ? ` (objavljen ${fmtDate(r.posted)})` : ''}. Proveri polja pa sačuvaj.${r.note ? ` ${r.note}` : ''}`;
+    } catch (e) {
+      job = { url, applied_at: c.req.query('applied') === '1' ? todayISO() : undefined };
+      err = `Nisam uspeo da pročitam stranicu (${e instanceof Error ? e.message : 'greška'}). Neki sajtovi traže prijavu; popuni ručno, link je sačuvan.`;
+    }
+  }
   return c.html(
     <Layout title="Novi posao" active="jobs" user={user}>
       <Topbar crumb={<><a href="/jobs">Poslovi</a> / <b>Novi</b></>} />
       <div class="content" style="max-width:900px">
-        <div class="page-head"><h1>Dodaj posao</h1></div>
-        <JobForm action="/jobs/new" />
+        <div class="page-head"><div><h1>Dodaj posao</h1><div class="sub">Nalepi link oglasa i ja popunim šta mogu; sve možeš da ispraviš pre čuvanja.</div></div></div>
+        <form method="get" action="/jobs/new" class="mat-search import-row">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path></svg>
+          <input type="url" name="url" value={raw} placeholder="https://djinni.co/jobs/… ili bilo koji link oglasa" required />
+          <label class="check" style="margin:0;white-space:nowrap"><input type="checkbox" name="applied" value="1" checked={c.req.query('applied') === '1' || !raw} /> već sam aplicirao</label>
+          <button class="btn btn-solid btn-sm" type="submit">Uvezi</button>
+        </form>
+        {info && <Flash>{info}</Flash>}
+        {err && <Flash kind="err">{err}</Flash>}
+        <JobForm action="/jobs/new" job={job} isNew />
       </div>
     </Layout>,
   );
@@ -359,17 +391,24 @@ jobRoutes.get('/jobs/new', (c) => {
 
 jobRoutes.post('/jobs/new', async (c) => {
   const user = c.get('user') as SessionUser;
-  const input = readInput(await c.req.parseBody());
+  const body = await c.req.parseBody();
+  const input = readInput(body);
   if (typeof input === 'string') {
     return c.html(
       <Layout title="Novi posao" active="jobs" user={user}>
         <Topbar crumb={<><a href="/jobs">Poslovi</a> / <b>Novi</b></>} />
-        <div class="content" style="max-width:900px"><JobForm action="/jobs/new" error={input} /></div>
+        <div class="content" style="max-width:900px"><JobForm action="/jobs/new" error={input} isNew /></div>
       </Layout>,
       400,
     );
   }
   const id = await createJob(c.env.DB, input, 'manual', user.name);
+  if (body.already_applied) {
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(String(body.applied_on ?? '')) ? String(body.applied_on) : todayISO();
+    const fu = new Date(Date.parse(d + 'T12:00:00Z') + FOLLOW_UP_DAYS * 86400000).toISOString().slice(0, 10);
+    await c.env.DB.prepare(`UPDATE jobs SET status = 'applied', applied_at = ?, follow_up_on = ?, updated_at = datetime('now') WHERE id = ?`).bind(d, fu, id).run();
+    await c.env.DB.prepare('INSERT INTO job_events (job_id, actor, body) VALUES (?, ?, ?)').bind(id, user.name, `Ručno dodato kao poslata prijava (${fmtDate(d)}). Follow-up ${fmtDate(fu)}.`).run();
+  }
   return c.redirect(`/jobs/${id}?ok=created`);
 });
 
