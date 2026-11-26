@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  AI?: Ai; // Workers AI (free daily allocation): speech-to-text for voice notes
 }
 
 export type Role = 'admin' | 'member';

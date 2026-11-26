@@ -33,6 +33,8 @@ export interface StoryRow {
   result: string | null;
   source: string;
   updated_at: string;
+  raw: string | null;
+  status: 'draft' | 'final';
 }
 export interface AnswerRow {
   id: number;
@@ -63,6 +65,8 @@ const OK: Record<string, string> = {
   cvdel: 'CV verzija je obrisana.',
   story: 'Priča je sačuvana.',
   storydel: 'Priča je obrisana.',
+  dict: 'Beleška je sačuvana i čeka da je Claude sredi u STAR format.',
+  voice: 'Snimak je prepoznat i čeka da ga Claude sredi u STAR format.',
   ans: 'Odgovor je sačuvan.',
   ansdel: 'Odgovor je obrisan.',
   big: 'PDF je veći od 1,5 MB, nije sačuvan. Tekst jeste.',
@@ -188,10 +192,57 @@ materialsRoutes.get('/materials', async (c) => {
     const { results } = await c.env.DB.prepare('SELECT * FROM stories ORDER BY updated_at DESC, id DESC').all<StoryRow>();
     const all = results ?? [];
     const tags = [...new Set(all.flatMap((x) => tagList(x.tags)))].sort();
-    const rows = (tag ? all.filter((x) => tagList(x.tags).includes(tag)) : all).filter((x) => !search0 || has(x.title, x.tags, x.situation, x.task, x.action, x.result));
+    const rows = (tag ? all.filter((x) => tagList(x.tags).includes(tag)) : all).filter((x) => (search0 ? has(x.title, x.tags, x.situation, x.task, x.action, x.result, x.raw) : x.status !== 'draft'));
     const editing = all.find((x) => x.id === edit);
+    const drafts = all.filter((x) => x.status === 'draft');
     body = (
       <>
+        {!search0 && !editing && (
+          <div class="panel voice" id="voice">
+            <div class="panel-head">
+              <h3>Snimi priču glasom</h3>
+              <select id="voiceLang" class="voice-lang" aria-label="Jezik">
+                <option value="sr">Srpski</option>
+                <option value="en">English</option>
+                <option value="">Auto</option>
+              </select>
+            </div>
+            <div class="voice-row">
+              <button type="button" class="voice-btn" id="voiceBtn" aria-label="Počni snimanje"><span class="voice-dot"></span><span id="voiceLabel">Snimi</span></button>
+              <div class="voice-info">
+                <div class="mono voice-time" id="voiceTime">0:00</div>
+                <div class="faint" id="voiceStatus">Ispričaj priču kao da si na intervjuu: šta je bila situacija, šta si ti uradio i kako se završilo. Claude je posle sredi u STAR format na engleskom.</div>
+              </div>
+            </div>
+            <form method="post" action="/materials/stories/dictate" class="voice-dictate">
+              <label for="dictateText" class="k">Ili izdiktiraj ovde (FluidVoice na Macu, diktiranje na telefonu) ili nalepi tekst</label>
+              <textarea id="dictateText" name="raw" rows={4} placeholder="Klikni ovde, pa pritisni prečicu za FluidVoice i pričaj…" required></textarea>
+              <div class="form-actions"><button type="submit" class="btn btn-solid btn-sm">Sačuvaj za sređivanje</button></div>
+            </form>
+          </div>
+        )}
+        {!search0 && drafts.length > 0 && !editing && (
+          <div class="panel voice-drafts">
+            <div class="panel-head">
+              <h3>Čeka sređivanje ({drafts.length})</h3>
+              <AskClaude prompt={PROMPTS.storyDrafts()} label="Sredi sa Claude-om" />
+            </div>
+            <div class="faint" style="font-size:.82rem;margin:-4px 0 10px">Sređuju se i same pri sledećem pokretanju agenta ili provere mejla.</div>
+            {drafts.map((d) => (
+              <div class="voice-draft">
+                <div class="mat-top">
+                  <div class="mat-title">{d.title}</div>
+                  <div class="mat-actions">
+                    <a href={`/materials?tab=stories&edit=${d.id}`} class="btn btn-line btn-sm">Uredi</a>
+                    <form method="post" action={`/materials/stories/${d.id}/delete`} onsubmit="return confirm('Obrisati snimak?')"><button class="btn btn-line btn-sm" type="submit">Obriši</button></form>
+                  </div>
+                </div>
+                <div class="voice-raw">{d.raw}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <script src="/voice.js" defer></script>
         {!search0 && <div class="panel">
           <div class="panel-head">
             <h3>{editing ? 'Izmeni priču' : 'Nova STAR priča'}</h3>
@@ -210,6 +261,9 @@ materialsRoutes.get('/materials', async (c) => {
               <div class="field"><label>A – Akcija</label><textarea name="action" rows={4}>{editing?.action ?? ''}</textarea></div>
               <div class="field"><label>R – Rezultat</label><textarea name="result" rows={4}>{editing?.result ?? ''}</textarea></div>
             </div>
+            {editing?.raw && (
+              <div class="field"><label>Transkript glasovne beleške</label><textarea name="raw" rows={4}>{editing.raw}</textarea></div>
+            )}
             <div class="form-actions">
               {editing && <a href="/materials?tab=stories" class="btn btn-line btn-sm">Otkaži</a>}
               <button type="submit" class="btn btn-solid btn-sm">Sačuvaj</button>
@@ -392,11 +446,57 @@ async function saveStory(c: any, id: number | null) {
   const b = await c.req.parseBody();
   const title = s(b.title);
   if (!title) return c.redirect('/materials?tab=stories');
-  const vals = [title, s(b.tags), s(b.situation), s(b.task), s(b.action), s(b.result)];
-  if (id) await c.env.DB.prepare(`UPDATE stories SET title=?, tags=?, situation=?, task=?, action=?, result=?, updated_at=datetime('now') WHERE id=?`).bind(...vals, id).run();
-  else await c.env.DB.prepare('INSERT INTO stories (title, tags, situation, task, action, result) VALUES (?, ?, ?, ?, ?, ?)').bind(...vals).run();
+  const star = [s(b.situation), s(b.task), s(b.action), s(b.result)];
+  const status = star.some(Boolean) || !s(b.raw) ? 'final' : 'draft';
+  const vals = [title, s(b.tags), ...star, s(b.raw), status];
+  if (id) await c.env.DB.prepare(`UPDATE stories SET title=?, tags=?, situation=?, task=?, action=?, result=?, raw=?, status=?, updated_at=datetime('now') WHERE id=?`).bind(...vals, id).run();
+  else await c.env.DB.prepare('INSERT INTO stories (title, tags, situation, task, action, result, raw, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').bind(...vals).run();
   return c.redirect('/materials?tab=stories&ok=story');
 }
+
+// Voice note → Whisper (Workers AI, free allocation) → draft story with the raw transcript.
+// The browser sends the recording in ~2-minute segments so each stays small.
+const VOICE_MAX_BYTES = 12 * 1024 * 1024;
+function toB64(buf: ArrayBuffer): string {
+  const u = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+// Dictated or pasted text (e.g. FluidVoice on the Mac): same draft as a voice note.
+materialsRoutes.post('/materials/stories/dictate', async (c) => {
+  const b = await c.req.parseBody();
+  const raw = s(b.raw);
+  if (!raw) return c.redirect('/materials?tab=stories');
+  const now = new Intl.DateTimeFormat('sr-RS', { timeZone: 'Europe/Belgrade', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date());
+  await c.env.DB.prepare("INSERT INTO stories (title, raw, status) VALUES (?, ?, 'draft')").bind(`Diktirana beleška ${now}`, raw).run();
+  return c.redirect('/materials?tab=stories&ok=dict');
+});
+
+materialsRoutes.post('/materials/stories/voice', async (c) => {
+  if (!c.env.AI) return c.json({ error: 'Prepoznavanje govora nije uključeno (Workers AI).' }, 503);
+  const b = await c.req.parseBody({ all: true });
+  const files = ([] as unknown[]).concat(b.audio ?? []).filter((f): f is File => f instanceof File && f.size > 0);
+  if (!files.length) return c.json({ error: 'Snimak je prazan.' }, 400);
+  if (files.reduce((n, f) => n + f.size, 0) > VOICE_MAX_BYTES) return c.json({ error: 'Snimak je predugačak (najviše oko 20 minuta).' }, 413);
+  const lang = ['sr', 'en'].includes(String(b.lang)) ? String(b.lang) : undefined;
+  const parts: string[] = [];
+  try {
+    for (const f of files) {
+      const out = (await c.env.AI.run('@cf/openai/whisper-large-v3-turbo' as any, { audio: toB64(await f.arrayBuffer()), ...(lang ? { language: lang } : {}) } as any)) as { text?: string };
+      if (out?.text?.trim()) parts.push(out.text.trim());
+    }
+  } catch (e) {
+    console.error('whisper failed', e);
+    return c.json({ error: 'Prepoznavanje govora nije uspelo (možda je dnevna besplatna kvota potrošena). Pokušaj kasnije.' }, 502);
+  }
+  const raw = parts.join(' ').trim();
+  if (!raw) return c.json({ error: 'Nisam prepoznao govor. Probaj ponovo, bliže mikrofonu.' }, 422);
+  const now = new Intl.DateTimeFormat('sr-RS', { timeZone: 'Europe/Belgrade', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date());
+  const r = await c.env.DB.prepare("INSERT INTO stories (title, raw, status) VALUES (?, ?, 'draft')").bind(`Glasovna beleška ${now}`, raw).run();
+  return c.json({ ok: true, id: r.meta.last_row_id });
+});
+
 materialsRoutes.post('/materials/stories', (c) => saveStory(c, null));
 materialsRoutes.post('/materials/stories/:id', (c) => saveStory(c, Number(c.req.param('id'))));
 materialsRoutes.post('/materials/stories/:id/delete', async (c) => {

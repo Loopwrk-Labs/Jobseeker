@@ -424,3 +424,22 @@ a.next-step{display:block;color:inherit;text-decoration:none}
 .cmp tr.cmp-on .cmp-pick{font-weight:700;text-decoration:none}
 .cmp-tag{font-family:'IBM Plex Mono',monospace;font-size:.62rem;padding:1px 6px;border-radius:20px;border:1px solid var(--hairline-strong);color:var(--ink-dim);margin-left:4px}
 .cmp tr.cmp-best .cmp-tag{color:var(--green);border-color:color-mix(in srgb,var(--green) 50%,transparent)}
+
+/* Voice-recorded STAR stories */
+.voice-lang{width:auto;padding:4px 8px;font-size:.8rem}
+.voice-row{display:flex;align-items:center;gap:16px}
+.voice-btn{display:inline-flex;align-items:center;gap:10px;padding:12px 20px;border-radius:999px;border:1px solid var(--hairline-strong);background:var(--surface-2);color:var(--ink);font:inherit;font-weight:600;cursor:pointer;flex:none}
+.voice-btn:disabled{opacity:.6;cursor:wait}
+.voice-dot{width:12px;height:12px;border-radius:50%;background:var(--red)}
+.voice-btn.rec{border-color:var(--red);background:color-mix(in srgb,var(--red) 12%,transparent)}
+.voice-btn.rec .voice-dot{border-radius:2px;animation:vpulse 1s ease-in-out infinite}
+@keyframes vpulse{50%{opacity:.35}}
+.voice-time{font-size:1.1rem;font-weight:600}
+.voice-info .faint{font-size:.84rem}
+.voice-draft{padding:10px 0;border-top:1px solid var(--hairline)}
+.voice-draft:first-of-type{border-top:0}
+.voice-raw{font-size:.88rem;color:var(--ink-dim);white-space:pre-wrap;max-height:9em;overflow:auto;margin-top:4px}
+@media (max-width:700px){.voice-row{flex-direction:column;align-items:flex-start}}
+.voice-dictate{margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline)}
+.voice-dictate .k{display:block;font-size:.8rem;color:var(--ink-dim);margin-bottom:6px}
+.voice-dictate textarea{width:100%}
