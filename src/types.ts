@@ -81,6 +81,9 @@ export interface JobRow {
   cv_version_id: number | null;
   created_at: string;
   updated_at: string;
+  trust: 'ok' | 'caution' | 'scam' | null;
+  trust_notes: string | null;
+  trust_checked_at: string | null;
 }
 
 export interface EventRow {

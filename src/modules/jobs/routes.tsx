@@ -20,6 +20,8 @@ import { fmtWhen } from '../../lib/tz';
 import { parseDateInput, stripDashes } from '../../lib/format';
 import { notFoundPage } from '../../views/notfound';
 import { RejectionPanel, getRejection } from '../rejections/routes';
+import { TrustBadge, TrustPanel } from '../trust/view';
+import { scamSignals } from '../trust/signals';
 import {
   listJobs,
   getJob,
@@ -40,6 +42,7 @@ type Vars = { user: SessionUser | null };
 export const jobRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 const OK_MSG: Record<string, string> = {
+  trust: 'Ocena legitimnosti je sačuvana.',
   rej: 'Odbijenica je sačuvana.',
   rejtpl: 'Odgovor je vraćen na šablon.',
   created: 'Posao je dodat.',
@@ -238,6 +241,7 @@ jobRoutes.get('/jobs', async (c) => {
                         <div class="foot">
                           <LevelTag level={j.level} />
                           <FitBadge fit={j.fit} />
+                          <TrustBadge trust={j.trust} compact />
                         </div>
                         {dueTag(j) && <div style="margin-top:6px">{dueTag(j)}</div>}
                       </a>
@@ -518,6 +522,8 @@ jobRoutes.get('/jobs/:id', async (c) => {
     getRejection(c.env.DB, id),
   ]);
   const pastRounds = ivs.filter((x) => new Date(x.starts_at).getTime() <= Date.now()).length;
+  const signals = scamSignals(job, people);
+  const trustTop = job.trust === 'scam' || job.trust === 'caution' || signals.some((x) => x.level === 'red');
   const ivx = tab === 'intervjui' ? await extrasFor(c.env.DB, ivs.map((x) => x.id)) : { fb: new Map(), rec: new Map() };
   const nextIv = ivs.find((x) => new Date(x.starts_at).getTime() > Date.now() - 2 * 3600e3);
   const ok = c.req.query('ok');
@@ -543,6 +549,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
               <LevelTag level={job.level} />
               <FitBadge fit={job.fit} />
               {salary && <SalaryTag job={job} />}
+              <a href="#legitimnost" class="trust-link"><TrustBadge trust={job.trust} /></a>
             </div>
           </div>
           <div class="inline-actions">
@@ -592,6 +599,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
                 {tab === 'pregled' && (
                   <>
                     {(job.status === 'rejected' || rej) && <RejectionPanel job={job} r={rej} rounds={pastRounds} />}
+                    {trustTop && <TrustPanel job={job} signals={signals} />}
                     <div class="panel">
                       <div class="panel-head"><h3>Osnovno</h3></div>
                       <div class="kv kv-4">
@@ -622,6 +630,8 @@ jobRoutes.get('/jobs/:id', async (c) => {
                       <div class="panel-head"><h3>Moje beleške</h3><a href={`/jobs/${id}?edit=1`} class="faint mono" style="font-size:.7rem">izmeni →</a></div>
                       {job.notes ? <div class="prose" style="padding:0">{raw(renderMarkdown(job.notes, { breaks: true }))}</div> : <div class="faint" style="font-size:.88rem">Još nema beležaka. Agent ovo polje nikad ne menja.</div>}
                     </div>
+
+                    {!trustTop && <TrustPanel job={job} signals={signals} />}
                   </>
                 )}
 
@@ -860,6 +870,17 @@ jobRoutes.post('/jobs/:id/edit', async (c) => {
   if (typeof input === 'string') return c.redirect(`/jobs/${id}?edit=1`);
   await updateJob(c.env.DB, id, input, user.name);
   return c.redirect(`/jobs/${id}?ok=saved`);
+});
+
+jobRoutes.post('/jobs/:id/trust', async (c) => {
+  const user = c.get('user') as SessionUser;
+  const id = Number(c.req.param('id'));
+  const b = await c.req.parseBody();
+  const t = ['ok', 'caution', 'scam'].includes(String(b.trust)) ? String(b.trust) : null;
+  const r = await c.env.DB.prepare("UPDATE jobs SET trust = ?, trust_checked_at = CASE WHEN ? IS NULL THEN trust_checked_at ELSE datetime('now') END, updated_at = datetime('now') WHERE id = ?").bind(t, t, id).run();
+  if (!r.meta.changes) return c.redirect('/jobs');
+  await addEvent(c.env.DB, id, user.name, `Legitimnost: ${t ? { ok: 'firma proverena', caution: 'oprez', scam: 'verovatno prevara' }[t] : 'nije provereno'} (ručno).`);
+  return c.redirect(`/jobs/${id}?ok=trust#legitimnost`);
 });
 
 jobRoutes.post('/jobs/:id/status', async (c) => {
