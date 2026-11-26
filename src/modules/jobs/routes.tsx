@@ -19,6 +19,7 @@ const fmtMoney = (n: number, cur: string) => `${new Intl.NumberFormat('de-DE', {
 import { fmtWhen } from '../../lib/tz';
 import { parseDateInput, stripDashes } from '../../lib/format';
 import { notFoundPage } from '../../views/notfound';
+import { RejectionPanel, getRejection } from '../rejections/routes';
 import {
   listJobs,
   getJob,
@@ -39,6 +40,8 @@ type Vars = { user: SessionUser | null };
 export const jobRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
 
 const OK_MSG: Record<string, string> = {
+  rej: 'Odbijenica je sačuvana.',
+  rejtpl: 'Odgovor je vraćen na šablon.',
   created: 'Posao je dodat.',
   saved: 'Sačuvano.',
   status: 'Status je promenjen.',
@@ -503,7 +506,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
   if (!job) return notFoundPage(c, 'Ovaj posao ne postoji ili je uklonjen.', '/jobs', 'Na poslove');
   const q = c.req.query('tab');
   const tab: Tab = (TABS.find(([k]) => k === q)?.[0] ?? 'pregled') as Tab;
-  const [events, pkg, fx, ivs, people, cvs, market] = await Promise.all([
+  const [events, pkg, fx, ivs, people, cvs, market, rej] = await Promise.all([
     listEvents(c.env.DB, id),
     getPackage(c.env.DB, id),
     tab === 'plata' ? getRates(c.env.DB) : Promise.resolve(null),
@@ -511,7 +514,9 @@ jobRoutes.get('/jobs/:id', async (c) => {
     jobContacts(c.env.DB, id, job.company),
     tab === 'prijava' ? listCvs(c.env.DB) : Promise.resolve([]),
     tab === 'plata' ? c.env.DB.prepare('SELECT * FROM salary_research WHERE job_id = ?').bind(id).first<MarketRow>() : Promise.resolve(null),
+    getRejection(c.env.DB, id),
   ]);
+  const pastRounds = ivs.filter((x) => new Date(x.starts_at).getTime() <= Date.now()).length;
   const ivx = tab === 'intervjui' ? await extrasFor(c.env.DB, ivs.map((x) => x.id)) : { fb: new Map(), rec: new Map() };
   const nextIv = ivs.find((x) => new Date(x.starts_at).getTime() > Date.now() - 2 * 3600e3);
   const ok = c.req.query('ok');
@@ -585,6 +590,7 @@ jobRoutes.get('/jobs/:id', async (c) => {
               <div class="stack">
                 {tab === 'pregled' && (
                   <>
+                    {(job.status === 'rejected' || rej) && <RejectionPanel job={job} r={rej} rounds={pastRounds} />}
                     <div class="panel">
                       <div class="panel-head"><h3>Osnovno</h3></div>
                       <div class="kv kv-4">

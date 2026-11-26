@@ -16,6 +16,7 @@ import { statsRoutes } from './modules/stats/routes';
 import { pushRoutes } from './modules/push/routes';
 import { runNotifications } from './modules/push/service';
 import { fathomRoutes } from './modules/fathom/routes';
+import { rejectionRoutes } from './modules/rejections/routes';
 import { notFoundPage } from './views/notfound';
 
 const app = new Hono<{ Bindings: Env; Variables: { user: SessionUser | null } }>();
@@ -48,6 +49,7 @@ app.route('/', contactRoutes);
 app.route('/', statsRoutes);
 app.route('/', pushRoutes);
 app.route('/', fathomRoutes);
+app.route('/', rejectionRoutes);
 
 app.notFound((c) => notFoundPage(c));
 

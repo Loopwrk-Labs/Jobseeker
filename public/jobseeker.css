@@ -397,3 +397,17 @@ a.next-step{display:block;color:inherit;text-decoration:none}
 /* Calculator: paušal limit exceeded */
 #calcNotes li.calc-warn{list-style:none;margin:0 0 8px -18px;padding:10px 12px;border:1px solid var(--red, #e5484d);border-radius:8px;color:var(--ink);background:color-mix(in srgb,var(--red, #e5484d) 10%,transparent)}
 .calc-void td.mono{text-decoration:line-through;text-decoration-thickness:1px;opacity:.7}
+
+/* Rejections */
+.rej{border-left:3px solid var(--red)}
+.rej-meta{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;font-size:.84rem;color:var(--ink-dim);margin-bottom:10px}
+.rej-badge{font-family:'IBM Plex Mono',monospace;font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:20px;border:1px solid}
+.rej-badge.gen{color:var(--red);border-color:color-mix(in srgb,var(--red) 50%,transparent)}
+.rej-badge.spec{color:var(--green);border-color:color-mix(in srgb,var(--green) 50%,transparent)}
+.rej-st{font-family:'IBM Plex Mono',monospace;font-size:.68rem;color:var(--ink-dim)}
+.rej-st.rej-sent{color:var(--green)} .rej-st.rej-draft{color:var(--amber, #f5a524)}
+.rej-reason{margin:0 0 10px;font-size:.9rem}
+.rej-msg{margin:0 0 12px;font-size:.88rem}.rej-msg summary,.rej-edit summary{cursor:pointer;font-size:.8rem;color:var(--ink-dim)}
+.rej-msg .prewrap{margin-top:8px;padding:10px 12px;background:var(--surface-2);border-radius:8px}
+.rej-form textarea{width:100%;font:inherit;font-size:.9rem;line-height:1.5}
+.rej-edit{margin-top:14px}

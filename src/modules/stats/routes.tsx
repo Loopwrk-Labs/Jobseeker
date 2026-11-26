@@ -4,6 +4,9 @@ import { Layout, Topbar } from '../../views/layout';
 import { hostOf } from '../../views/helpers';
 import { parseRisks } from '../jobs/facts';
 import { FEELINGS } from '../calendar/service';
+import { REPLY_STATUS_LABEL, type RejectionRow } from '../rejections/routes';
+import { STAGE_LABEL } from '../rejections/template';
+import { fmtDate } from '../../lib/format';
 
 type Vars = { user: SessionUser | null };
 export const statsRoutes = new Hono<{ Bindings: Env; Variables: Vars }>();
@@ -113,6 +116,12 @@ statsRoutes.get('/stats', async (c) => {
      FROM interview_feedback f JOIN interviews i ON i.id = f.interview_id LEFT JOIN jobs j ON j.id = i.job_id
      GROUP BY j.id ORDER BY score DESC`,
   ).all<{ job_id: number | null; company: string | null; n: number; feeling: number | null; score: number | null; yes: number; no: number; flags: number }>();
+  const { results: rejs } = await c.env.DB.prepare(
+    `SELECT r.*, j.company, j.title FROM rejections r JOIN jobs j ON j.id = r.job_id ORDER BY coalesce(r.received_on, r.created_at) DESC`,
+  ).all<RejectionRow & { company: string; title: string }>();
+  const rejList = rejs ?? [];
+  const rejGeneric = rejList.filter((r) => r.generic === 1).length;
+  const rejOpen = rejList.filter((r) => r.reply_status === 'none').length;
   const tot = aggregate(jobs, () => 'Sve')[0] ?? { key: '', total: 0, applied: 0, responded: 0, interviews: 0, offers: 0 };
   const rejectedAfter = jobs.filter((j) => applied(j) && j.status === 'rejected').length;
 
@@ -164,6 +173,26 @@ statsRoutes.get('/stats', async (c) => {
             ))}
           </div>
         </div>
+
+        {rejList.length > 0 && (
+          <div class="panel flush table-wrap" style="margin-bottom:16px">
+            <div class="panel-head" style="padding:16px 16px 0"><h3>Odbijenice: {rejList.length} · generičkih {rejGeneric} · bez odgovora {rejOpen}</h3></div>
+            <table class="compact wide stats-t">
+              <thead><tr><th>Firma</th><th>Primljeno</th><th>Faza</th><th>Vrsta</th><th>Odgovor</th></tr></thead>
+              <tbody>
+                {rejList.map((r) => (
+                  <tr>
+                    <td><a href={`/jobs/${r.job_id}#odbijenica`} class="job-title">{r.company}</a><div class="job-co">{r.title}</div></td>
+                    <td class="mono">{r.received_on ? fmtDate(r.received_on) : '—'}</td>
+                    <td>{STAGE_LABEL[r.stage]}</td>
+                    <td><span class={`rej-badge ${r.generic ? 'gen' : 'spec'}`}>{r.generic ? 'Generička' : 'Konkretna'}</span></td>
+                    <td class={`rej-st rej-${r.reply_status}`}>{REPLY_STATUS_LABEL[r.reply_status]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {(exp ?? []).length > 0 && (
           <div class="panel flush table-wrap" style="margin-bottom:16px">
